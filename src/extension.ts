@@ -1,14 +1,16 @@
 // Main module for OpenDream extension.
 'use strict';
 
-import { CancellationToken, commands, ExtensionContext, FileType, ProcessExecution, Task, TaskGroup, TaskProvider, TaskScope, workspace } from 'vscode';
+import { CancellationToken, commands, ExtensionContext, FileType, ProcessExecution, Task, TaskGroup, TaskProvider, workspace } from 'vscode';
 import * as vscode from 'vscode';
 
 const TaskNames = {
-	COMPILER: 'OpenDream: build compiler',
-	CLIENT: 'OpenDream: build client',
-	SERVER: 'OpenDream: build server',
-	RUN_COMPILER: (dme: string) => `OpenDream: build - ${dme}`,
+	SOURCE: 'OpenDream',
+	COMPILER: 'build compiler',
+	CLIENT: 'build client',
+	SERVER: 'build server',
+	RUN_COMPILER: (dme: string) => `build - ${dme}`,
+	RUN_COMPILER_CURRENT: 'build - ${command:CurrentDME}',
 };
 
 // Entry point.
@@ -18,8 +20,12 @@ export async function activate(context: ExtensionContext) {
 
 	// Hidden command used in implementing `launch.json`.
 	context.subscriptions.push(commands.registerCommand('opendream.getFilenameJson', async () => {
-		return (await commands.executeCommand<string>('dreammaker.getFilenameDme'))!.replace(/\.dme$/, ".json");
+		return (await commands.executeCommand<string>('dreammaker.getFilenameDme'))?.replace(/\.dme$/, ".json");
 	}));
+
+	// ------------------------------------------------------------------------
+	// Register the task provider for OpenDream build tasks.
+	context.subscriptions.push(vscode.tasks.registerTaskProvider('opendream', new OpenDreamTaskProvider()));
 
 	// ------------------------------------------------------------------------
 	// Register the debugger mode.
@@ -35,9 +41,9 @@ export async function activate(context: ExtensionContext) {
 			return debugConfiguration.type ? debugConfiguration : {
 				"type": "opendream",
 				"request": "launch",
-				"name": "Launch DreamSeeker",
-				"preLaunchTask": "dm: build - ${command:CurrentDME}",
-				"json": "${workspaceFolder}/${command:CurrentJson}",
+				"name": "OpenDream",
+				"preLaunchTask": `${TaskNames.SOURCE}: ${TaskNames.RUN_COMPILER_CURRENT}`,
+				"json_path": "${workspaceFolder}/${command:CurrentJson}",
 				"noDebug": debugConfiguration.noDebug || false,
 			};
 		}
@@ -50,4 +56,54 @@ export async function activate(context: ExtensionContext) {
 			return null;
 		}
 	}));
+}
+
+// An alternative approach to using `dotnet run` everywhere would be to use
+// tasks running `dotnet build` and `dependsOn` for interdependencies, but
+// it's not in the API: https://github.com/microsoft/vscode/issues/132767
+
+class OpenDreamTaskProvider implements TaskProvider {
+	async provideTasks(token?: CancellationToken): Promise<Task[]> {
+		let openDreamPath = await getOpenDreamSourcePath();
+		if (!openDreamPath) {
+			return [];
+		}
+
+		let list = [];
+
+		// Add build tasks for each .dme in the workspace.
+		for (let folder of (workspace.workspaceFolders || [])) {
+			for (let [file, type] of await workspace.fs.readDirectory(folder.uri)) {
+				if (type == FileType.Directory || !file.endsWith('.dme')) {
+					continue;
+				}
+
+				let task = new Task(
+					{ type: "opendream", },
+					folder,
+					TaskNames.RUN_COMPILER(file),
+					TaskNames.SOURCE,
+					new ProcessExecution("dotnet", [
+						"run",
+						"--project", `${openDreamPath}/DMCompiler`,
+						"--",
+						file,
+					]),
+					'$openDreamCompiler'
+				);
+				task.group = TaskGroup.Build;
+				list.push(task);
+			}
+		};
+		return list;
+	}
+
+	resolveTask(task: Task, token?: CancellationToken): undefined {
+		return;
+	}
+}
+
+async function getOpenDreamSourcePath(): Promise<string | undefined> {
+	// TODO: add UI prompt if the config is unset
+	return workspace.getConfiguration('opendream').get('sourcePath');
 }
