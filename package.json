@@ -1,0 +1,136 @@
+{
+	"name": "opendream",
+	"version": "0.0.0",
+	"displayName": "OpenDream dev tools",
+	"description": "Developer tools for OpenDream",
+	"publisher": "platymuus",
+	"author": "SpaceManiac",
+	"license": "GPL-3.0",
+	"keywords": [
+		"opendream",
+		"dream maker",
+		"dm",
+		"ss13"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/SpaceManiac/vscode-opendream/"
+	},
+	"engines": {
+		"vscode": "^1.30.0"
+	},
+	"categories": [
+		"Programming Languages",
+		"Other"
+	],
+	"activationEvents": [
+		"onLanguage:dm",
+		"workspaceContains:*.dme",
+		"onDebugResolve:opendream"
+	],
+	"main": "./dist/extension",
+	"contributes": {
+		"configuration": {
+			"type": "object",
+			"title": "OpenDream dev tools configuration",
+			"properties": {
+				"opendream.sourcePath": {
+					"type": "string",
+					"default": null,
+					"description": "Path to your copy of the OpenDream source code."
+				}
+			}
+		},
+		"problemMatchers": [
+			{
+				"name": "openDreamCompiler",
+				"owner": "opendream",
+                "source": "OpenDream",
+				"fileLocation": [
+					"relative",
+					"${workspaceFolder}"
+				],
+                "pattern": {
+                    "regexp": "^(\\w+) at (.+):(\\d+):(\\d+): (.+)$",
+                    "severity": 1,
+                    "file": 2,
+                    "line": 3,
+                    "column": 4,
+                    "message": 5
+                }
+			}
+		],
+		"taskDefinitions": [
+		],
+		"debuggers": [
+			{
+				"type": "opendream",
+				"label": "OpenDream",
+				"languages": [
+					"dm"
+				],
+				"configurationAttributes": {
+					"launch": {
+						"required": [
+							"json"
+						],
+						"properties": {
+							"json": {
+								"type": "string",
+								"description": "Path to the compiled .json file to start."
+							}
+						}
+					}
+				},
+				"initialConfigurations": [
+					{
+						"type": "opendream",
+						"request": "launch",
+						"name": "Launch OpenDream",
+						"preLaunchTask": "OpenDream: build - ${command:CurrentDME}",
+						"json": "${workspaceFolder}/${command:CurrentJson}"
+					}
+				],
+				"configurationSnippets": [
+					{
+						"label": "OpenDream",
+						"body": {
+							"type": "opendream",
+							"request": "launch",
+							"name": "Launch OpenDream",
+							"preLaunchTask": "^\"OpenDream: build - \\${command:CurrentDME}\"",
+							"json": "^\"\\${workspaceFolder}/\\${command:CurrentJson}\""
+						}
+					}
+				],
+				"variables": {
+					"CurrentDME": "dreammaker.getFilenameDme",
+					"CurrentJson": "opendream.getFilenameJson"
+				}
+			}
+		],
+		"breakpoints": [
+			{
+				"language": "dm"
+			}
+		]
+	},
+	"scripts": {
+		"vscode:prepublish": "webpack --mode production",
+		"compile": "webpack --mode none",
+		"watch": "webpack --mode none --watch",
+		"test-compile": "tsc -p ./"
+	},
+	"dependencies": {
+	},
+	"devDependencies": {
+		"@types/node": "^7.10.14",
+		"@types/vscode": "^1.30.0",
+		"@types/webpack": "^4.41.32",
+		"ts-loader": "^9.4.1",
+		"tslint": "^5.20.1",
+		"typescript": "^4.8.0",
+		"webpack": "^5.64.2",
+		"webpack-cli": "^4.9.1"
+	}
+}
