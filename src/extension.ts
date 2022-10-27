@@ -5,9 +5,6 @@ import * as net from 'net';
 import { CancellationToken, commands, DebugProtocolMessage, ExtensionContext, FileType, ProcessExecution, Task, TaskGroup, TaskProvider, workspace } from 'vscode';
 import * as vscode from 'vscode';
 
-const GAME_PORT = 25566;
-//const DEBUG_PORT = 25567;
-
 const TaskNames = {
 	SOURCE: 'OpenDream',
 	COMPILER: 'build compiler',
@@ -62,20 +59,6 @@ export async function activate(context: ExtensionContext) {
 				return null;
 			}
 
-			/*
-			vscode.window.createTerminal({
-				name: "OpenDream Client",
-				shellPath: "dotnet",
-				shellArgs: [
-					"run",
-					"--project", `${openDreamPath}/OpenDreamClient`,
-					"--",
-					"--connect",
-					"--connect-address", `127.0.0.1:${GAME_PORT}`
-				],
-			});
-			*/
-
 			// Start a server and listen on an arbitrary port.
 			let server: net.Server;
 			let socketPromise = new Promise<net.Socket>(resolve => server = net.createServer(resolve));
@@ -83,19 +66,21 @@ export async function activate(context: ExtensionContext) {
 			await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 
 			// Boot the OD server pointing at that port.
-			vscode.window.createTerminal({
-				name: "OpenDream Server",
-				shellPath: "dotnet",
-				shellArgs: [
+			// Use executeTask instead of createTerminal so it will be readable if it crashes.
+			vscode.tasks.executeTask(new Task(
+				{ type: 'opendream_debug_server' },
+				session.workspaceFolder || vscode.TaskScope.Workspace,
+				'OpenDream server',
+				TaskNames.SOURCE,
+				new ProcessExecution("dotnet", [
 					"run",
 					"--project", `${openDreamPath}/OpenDreamServer`,
 					"--",
-					"--cvar", `server.port=${GAME_PORT}`,
+					"--cvar", `server.port=0`,
 					"--cvar", `opendream.debug_adapter_launched=${server.address().port}`,
 					"--cvar", `opendream.json_path=${session.configuration.json_path}`,
-				],
-				message: "Starting OpenDream server...",
-			}).show(true);
+				]),
+			));
 
 			// Wait for the OD server to connect back to us, then stop listening.
 			let socket = await socketPromise;
@@ -166,7 +151,7 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 	private buffer = Buffer.alloc(0);
 
 	private didSendMessageEmitter = new vscode.EventEmitter<DebugProtocolMessage>();
-	private sendMessageToEditor = this.didSendMessageEmitter.fire;
+	private sendMessageToEditor = this.didSendMessageEmitter.fire.bind(this.didSendMessageEmitter);
 	onDidSendMessage = this.didSendMessageEmitter.event;
 
 	constructor(socket: net.Socket) {
@@ -200,18 +185,38 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 		});
 	}
 
-	handleMessage(message: vscode.DebugProtocolMessage): void {
+	handleMessage(message: DebugProtocolMessage): void {
 		this.sendMessageToGame(message);
 	}
 
-	private sendMessageToGame(message: object): void {
+	private sendMessageToGame(message: DebugProtocolMessage): void {
 		console.log('-->', message);
 		let json = JSON.stringify(message);
 		this.socket.write(`Content-Length: ${json.length}\r\n\r\n${json}`);
 	}
 
-	private handleMessageFromGame(message: object): void {
+	private async handleMessageFromGame(message: any): Promise<void> {
 		console.log('<--', message);
+		if (message.type == 'response' && message.command == 'launch' && message.body && '$opendream/port' in message.body) {
+			// Launch the OD client.
+			let openDreamPath = await getOpenDreamSourcePath();
+			let gamePort = message.body['$opendream/port'];
+			console.log('Port for client to connect to:', gamePort);
+
+			vscode.tasks.executeTask(new Task(
+				{ type: 'opendream_debug_client' },  // Must differ from the one used above or else VSC will confuse them.
+				vscode.TaskScope.Workspace,
+				'OpenDream client',
+				TaskNames.SOURCE,
+				new ProcessExecution("dotnet", [
+					"run",
+					"--project", `${openDreamPath}/OpenDreamClient`,
+					"--",
+					"--connect",
+					"--connect-address", `127.0.0.1:${gamePort}`,
+				]),
+			));
+		}
 		this.sendMessageToEditor(message);
 	}
 
