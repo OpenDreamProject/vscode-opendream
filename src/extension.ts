@@ -1,8 +1,12 @@
 // Main module for OpenDream extension.
 'use strict';
 
-import { CancellationToken, commands, ExtensionContext, FileType, ProcessExecution, Task, TaskGroup, TaskProvider, workspace } from 'vscode';
+import * as net from 'net';
+import { CancellationToken, commands, DebugProtocolMessage, ExtensionContext, FileType, ProcessExecution, Task, TaskGroup, TaskProvider, workspace } from 'vscode';
 import * as vscode from 'vscode';
+
+const GAME_PORT = 25566;
+//const DEBUG_PORT = 25567;
 
 const TaskNames = {
 	SOURCE: 'OpenDream',
@@ -13,6 +17,7 @@ const TaskNames = {
 	RUN_COMPILER_CURRENT: 'build - ${command:CurrentDME}',
 };
 
+// ----------------------------------------------------------------------------
 // Entry point.
 export async function activate(context: ExtensionContext) {
 	// ------------------------------------------------------------------------
@@ -52,16 +57,61 @@ export async function activate(context: ExtensionContext) {
 	// register debugger factory to point at OpenDream's debugger mode
 	context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory('opendream', {
 		async createDebugAdapterDescriptor(session: vscode.DebugSession, executable: vscode.DebugAdapterExecutable | undefined): Promise<vscode.DebugAdapterDescriptor | null> {
-			//return new vscode.DebugAdapterServer(result.port);
-			return null;
+			let openDreamPath = await getOpenDreamSourcePath();
+			if (!openDreamPath) {
+				return null;
+			}
+
+			/*
+			vscode.window.createTerminal({
+				name: "OpenDream Client",
+				shellPath: "dotnet",
+				shellArgs: [
+					"run",
+					"--project", `${openDreamPath}/OpenDreamClient`,
+					"--",
+					"--connect",
+					"--connect-address", `127.0.0.1:${GAME_PORT}`
+				],
+			});
+			*/
+
+			// Start a server and listen on an arbitrary port.
+			let server: net.Server;
+			let socketPromise = new Promise<net.Socket>(resolve => server = net.createServer(resolve));
+			server = server!;
+			await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+
+			// Boot the OD server pointing at that port.
+			vscode.window.createTerminal({
+				name: "OpenDream Server",
+				shellPath: "dotnet",
+				shellArgs: [
+					"run",
+					"--project", `${openDreamPath}/OpenDreamServer`,
+					"--",
+					"--cvar", `server.port=${GAME_PORT}`,
+					"--cvar", `opendream.debug_adapter_launched=${server.address().port}`,
+					"--cvar", `opendream.json_path=${session.configuration.json_path}`,
+				],
+				message: "Starting OpenDream server...",
+			}).show(true);
+
+			// Wait for the OD server to connect back to us, then stop listening.
+			let socket = await socketPromise;
+			server!.close(); // No need to wait for this before proceeding, so just let it ride.
+
+			return new vscode.DebugAdapterInlineImplementation(new OpenDreamDebugAdapter(socket));
 		}
 	}));
 }
 
+// ----------------------------------------------------------------------------
+// Task provider
+
 // An alternative approach to using `dotnet run` everywhere would be to use
 // tasks running `dotnet build` and `dependsOn` for interdependencies, but
 // it's not in the API: https://github.com/microsoft/vscode/issues/132767
-
 class OpenDreamTaskProvider implements TaskProvider {
 	async provideTasks(token?: CancellationToken): Promise<Task[]> {
 		let openDreamPath = await getOpenDreamSourcePath();
@@ -106,4 +156,67 @@ class OpenDreamTaskProvider implements TaskProvider {
 async function getOpenDreamSourcePath(): Promise<string | undefined> {
 	// TODO: add UI prompt if the config is unset
 	return workspace.getConfiguration('opendream').get('sourcePath');
+}
+
+// ----------------------------------------------------------------------------
+// Debug adapter
+
+class OpenDreamDebugAdapter implements vscode.DebugAdapter {
+	private socket: net.Socket;
+	private buffer = Buffer.alloc(0);
+
+	private didSendMessageEmitter = new vscode.EventEmitter<DebugProtocolMessage>();
+	private sendMessageToEditor = this.didSendMessageEmitter.fire;
+	onDidSendMessage = this.didSendMessageEmitter.event;
+
+	constructor(socket: net.Socket) {
+		this.socket = socket;
+		socket.on('data', received => {
+			// Append received data to buffer.
+			let old = this.buffer;
+			this.buffer = Buffer.alloc(old.length + received.length);
+			old.copy(this.buffer);
+			received.copy(this.buffer, old.length);
+
+			// Attempt to chop off a complete message.
+			let headerEnd = this.buffer.indexOf('\r\n\r\n');
+			while (headerEnd >= 0) {
+				let headers = this.buffer.toString('utf-8', 0, headerEnd);
+				let contentLength = Number(/Content-length: (\d+)/i.exec(headers)![1]);
+				let dataEnd = headerEnd + 4 + contentLength;
+				if (dataEnd > this.buffer.length) {
+					break;
+				}
+
+				try {
+					this.handleMessageFromGame(JSON.parse(this.buffer.toString('utf-8', headerEnd + 4, dataEnd)));
+				} catch (e) {
+					console.error(e);
+				}
+
+				this.buffer = Buffer.from(this.buffer.buffer.slice(this.buffer.byteOffset + dataEnd));
+				headerEnd = this.buffer.indexOf('\r\n\r\n');
+			}
+		});
+	}
+
+	handleMessage(message: vscode.DebugProtocolMessage): void {
+		this.sendMessageToGame(message);
+	}
+
+	private sendMessageToGame(message: object): void {
+		console.log('-->', message);
+		let json = JSON.stringify(message);
+		this.socket.write(`Content-Length: ${json.length}\r\n\r\n${json}`);
+	}
+
+	private handleMessageFromGame(message: object): void {
+		console.log('<--', message);
+		this.sendMessageToEditor(message);
+	}
+
+	dispose() {
+		this.socket.destroy();
+		this.didSendMessageEmitter.dispose();
+	}
 }

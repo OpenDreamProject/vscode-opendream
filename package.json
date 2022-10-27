@@ -75,10 +75,10 @@
 				"configurationAttributes": {
 					"launch": {
 						"required": [
-							"json"
+							"json_path"
 						],
 						"properties": {
-							"json": {
+							"json_path": {
 								"type": "string",
 								"description": "Path to the compiled .json file to start."
 							}
@@ -91,7 +91,7 @@
 						"request": "launch",
 						"name": "Launch OpenDream",
 						"preLaunchTask": "OpenDream: build - ${command:CurrentDME}",
-						"json": "${workspaceFolder}/${command:CurrentJson}"
+						"json_path": "${workspaceFolder}/${command:CurrentJson}"
 					}
 				],
 				"configurationSnippets": [
@@ -102,7 +102,7 @@
 							"request": "launch",
 							"name": "Launch OpenDream",
 							"preLaunchTask": "^\"OpenDream: build - \\${command:CurrentDME}\"",
-							"json": "^\"\\${workspaceFolder}/\\${command:CurrentJson}\""
+							"json_path": "^\"\\${workspaceFolder}/\\${command:CurrentJson}\""
 						}
 					}
 				],
