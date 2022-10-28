@@ -60,6 +60,7 @@ export async function activate(context: ExtensionContext) {
 			if (!openDreamPath) {
 				return null;
 			}
+			console.log('Starting OpenDream debug session ----------');
 
 			// Start a server and listen on an arbitrary port.
 			let server: net.Server;
@@ -207,10 +208,10 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 
 	private async handleMessageFromGame(message: any): Promise<void> {
 		console.log('<--', message);
-		if (message.type == 'response' && message.command == 'launch' && message.body && '$opendream/port' in message.body) {
+		if (message.type == 'event' && message.event == '$opendream/ready') {
 			// Launch the OD client.
 			let openDreamPath = await getOpenDreamSourcePath();
-			let gamePort = message.body['$opendream/port'];
+			let gamePort = message.body.gamePort;
 			console.log('Port for client to connect to:', gamePort);
 			let task = new Task(
 				{ type: 'opendream_debug_client' },  // Must differ from the one used above or else VSC will confuse them.
