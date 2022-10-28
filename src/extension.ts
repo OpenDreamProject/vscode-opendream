@@ -161,6 +161,7 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 
 	constructor(socket: net.Socket) {
 		this.socket = socket;
+		socket.on('error', console.error);
 		socket.on('data', received => {
 			// Append received data to buffer.
 			let old = this.buffer;
@@ -179,7 +180,9 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 				}
 
 				try {
-					this.handleMessageFromGame(JSON.parse(this.buffer.toString('utf-8', headerEnd + 4, dataEnd)));
+					let message = JSON.parse(this.buffer.toString('utf-8', headerEnd + 4, dataEnd));
+					console.log('<--', contentLength, message);
+					this.handleMessageFromGame(message);
 				} catch (e) {
 					console.error(e);
 				}
@@ -201,13 +204,12 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 	}
 
 	private sendMessageToGame(message: DebugProtocolMessage): void {
-		console.log('-->', message);
 		let json = JSON.stringify(message);
+		console.log('-->', json.length, message);
 		this.socket.write(`Content-Length: ${json.length}\r\n\r\n${json}`);
 	}
 
 	private async handleMessageFromGame(message: any): Promise<void> {
-		console.log('<--', message);
 		if (message.type == 'event' && message.event == '$opendream/ready') {
 			// Launch the OD client.
 			let openDreamPath = await getOpenDreamSourcePath();
