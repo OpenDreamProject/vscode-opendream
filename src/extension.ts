@@ -67,7 +67,7 @@ export async function activate(context: ExtensionContext) {
 
 			// Boot the OD server pointing at that port.
 			// Use executeTask instead of createTerminal so it will be readable if it crashes.
-			vscode.tasks.executeTask(new Task(
+			let task = new Task(
 				{ type: 'opendream_debug_server' },
 				session.workspaceFolder || vscode.TaskScope.Workspace,
 				'OpenDream server',
@@ -80,7 +80,9 @@ export async function activate(context: ExtensionContext) {
 					"--cvar", `opendream.debug_adapter_launched=${server.address().port}`,
 					"--cvar", `opendream.json_path=${session.configuration.json_path}`,
 				]),
-			));
+			);
+			task.presentationOptions.panel = vscode.TaskPanelKind.Dedicated;
+			vscode.tasks.executeTask(task);
 
 			// Wait for the OD server to connect back to us, then stop listening.
 			let socket = await socketPromise;
@@ -202,8 +204,7 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 			let openDreamPath = await getOpenDreamSourcePath();
 			let gamePort = message.body['$opendream/port'];
 			console.log('Port for client to connect to:', gamePort);
-
-			vscode.tasks.executeTask(new Task(
+			let task = new Task(
 				{ type: 'opendream_debug_client' },  // Must differ from the one used above or else VSC will confuse them.
 				vscode.TaskScope.Workspace,
 				'OpenDream client',
@@ -215,7 +216,9 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 					"--connect",
 					"--connect-address", `127.0.0.1:${gamePort}`,
 				]),
-			));
+			);
+			task.presentationOptions.panel = vscode.TaskPanelKind.Dedicated;
+			await vscode.tasks.executeTask(task);
 		}
 		this.sendMessageToEditor(message);
 	}
