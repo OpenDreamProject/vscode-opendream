@@ -14,6 +14,8 @@ const TaskNames = {
 	RUN_COMPILER_CURRENT: 'build - ${command:CurrentDME}',
 };
 
+let clientTask: vscode.TaskExecution | undefined;
+
 // ----------------------------------------------------------------------------
 // Entry point.
 export async function activate(context: ExtensionContext) {
@@ -187,7 +189,13 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 		});
 	}
 
-	handleMessage(message: DebugProtocolMessage): void {
+	handleMessage(message: any): void {
+		if (message.type == 'request' && message.command == 'disconnect') {
+			// Kill the client when the Stop button is clicked.
+			// This has the unfortunate side-effect of removing its terminal entirely.
+			clientTask?.terminate();
+			clientTask = undefined;
+		}
 		this.sendMessageToGame(message);
 	}
 
@@ -218,7 +226,7 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 				]),
 			);
 			task.presentationOptions.panel = vscode.TaskPanelKind.Dedicated;
-			await vscode.tasks.executeTask(task);
+			clientTask = await vscode.tasks.executeTask(task);
 		}
 		this.sendMessageToEditor(message);
 	}
