@@ -42,10 +42,13 @@ export async function activate(context: ExtensionContext) {
 	context.subscriptions.push(vscode.debug.registerDebugConfigurationProvider('opendream', {
 		async resolveDebugConfiguration(folder: vscode.WorkspaceFolder | undefined, debugConfiguration: vscode.DebugConfiguration, token?: vscode.CancellationToken): Promise<vscode.DebugConfiguration | undefined> {
 			// Called with debugConfiguration = {} if launch.json does not exist.
-			return debugConfiguration.type ? debugConfiguration : {
+			if (debugConfiguration.type) {
+				return debugConfiguration;
+			}
+			return {
 				"type": "opendream",
 				"request": "launch",
-				"name": "OpenDream",
+				"name": `OD: ${await commands.executeCommand<string>('dreammaker.getFilenameDme')}`,
 				"preLaunchTask": `${TaskNames.SOURCE}: ${TaskNames.RUN_COMPILER_CURRENT}`,
 				"json_path": "${workspaceFolder}/${command:CurrentJson}",
 				"noDebug": debugConfiguration.noDebug || false,
@@ -56,8 +59,8 @@ export async function activate(context: ExtensionContext) {
 	// register debugger factory to point at OpenDream's debugger mode
 	context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory('opendream', {
 		async createDebugAdapterDescriptor(session: vscode.DebugSession, executable: vscode.DebugAdapterExecutable | undefined): Promise<vscode.DebugAdapterDescriptor | null> {
-			let openDreamPath = await getOpenDreamSourcePath();
-			if (!openDreamPath) {
+			let openDream = await getOpenDreamInstallation();
+			if (!openDream) {
 				return null;
 			}
 			console.log('Starting OpenDream debug session ----------');
@@ -69,23 +72,11 @@ export async function activate(context: ExtensionContext) {
 			await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 
 			// Boot the OD server pointing at that port.
-			// Use executeTask instead of createTerminal so it will be readable if it crashes.
-			let task = new Task(
-				{ type: 'opendream_debug_server' },
-				session.workspaceFolder || vscode.TaskScope.Workspace,
-				'OpenDream server',
-				TaskNames.SOURCE,
-				new ProcessExecution("dotnet", [
-					"run",
-					"--project", `${openDreamPath}/OpenDreamServer`,
-					"--",
-					"--cvar", `server.port=0`,
-					"--cvar", `opendream.debug_adapter_launched=${server.address().port}`,
-					"--cvar", `opendream.json_path=${session.configuration.json_path}`,
-				]),
-			);
-			task.presentationOptions.panel = vscode.TaskPanelKind.Dedicated;
-			vscode.tasks.executeTask(task);
+			await openDream.runServer({
+				workspaceFolder: session.workspaceFolder,
+				debugPort: server.address().port,
+				json_path: session.configuration.json_path,
+			});
 
 			// Wait for the OD server to connect back to us, then stop listening.
 			let socket = await socketPromise;
@@ -104,8 +95,8 @@ export async function activate(context: ExtensionContext) {
 // it's not in the API: https://github.com/microsoft/vscode/issues/132767
 class OpenDreamTaskProvider implements TaskProvider {
 	async provideTasks(token?: CancellationToken): Promise<Task[]> {
-		let openDreamPath = await getOpenDreamSourcePath();
-		if (!openDreamPath) {
+		let openDream = await getOpenDreamInstallation();
+		if (!openDream) {
 			return [];
 		}
 
@@ -123,12 +114,7 @@ class OpenDreamTaskProvider implements TaskProvider {
 					folder,
 					TaskNames.RUN_COMPILER(file),
 					TaskNames.SOURCE,
-					new ProcessExecution("dotnet", [
-						"run",
-						"--project", `${openDreamPath}/DMCompiler`,
-						"--",
-						file,
-					]),
+					openDream.getCompilerExecution(file),
 					'$openDreamCompiler'
 				);
 				task.group = TaskGroup.Build;
@@ -141,11 +127,6 @@ class OpenDreamTaskProvider implements TaskProvider {
 	resolveTask(task: Task, token?: CancellationToken): undefined {
 		return;
 	}
-}
-
-async function getOpenDreamSourcePath(): Promise<string | undefined> {
-	// TODO: add UI prompt if the config is unset
-	return workspace.getConfiguration('opendream').get('sourcePath');
 }
 
 // ----------------------------------------------------------------------------
@@ -212,24 +193,20 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 	private async handleMessageFromGame(message: any): Promise<void> {
 		if (message.type == 'event' && message.event == '$opendream/ready') {
 			// Launch the OD client.
-			let openDreamPath = await getOpenDreamSourcePath();
-			let gamePort = message.body.gamePort;
-			console.log('Port for client to connect to:', gamePort);
-			let task = new Task(
-				{ type: 'opendream_debug_client' },  // Must differ from the one used above or else VSC will confuse them.
-				vscode.TaskScope.Workspace,
-				'OpenDream client',
-				TaskNames.SOURCE,
-				new ProcessExecution("dotnet", [
-					"run",
-					"--project", `${openDreamPath}/OpenDreamClient`,
-					"--",
-					"--connect",
-					"--connect-address", `127.0.0.1:${gamePort}`,
-				]),
-			);
-			task.presentationOptions.panel = vscode.TaskPanelKind.Dedicated;
-			clientTask = await vscode.tasks.executeTask(task);
+			let openDream = await getOpenDreamInstallation();
+			if (openDream) {
+				let gamePort = message.body.gamePort;
+				console.log('Port for client to connect to:', gamePort);
+				let task = new Task(
+					{ type: 'opendream_debug_client' },  // Must differ from the one used above or else VSC will confuse them.
+					vscode.TaskScope.Workspace,
+					'OpenDream client',
+					TaskNames.SOURCE,
+					openDream.getClientExecution(gamePort),
+				);
+				task.presentationOptions.panel = vscode.TaskPanelKind.Dedicated;
+				clientTask = await vscode.tasks.executeTask(task);
+			}
 		}
 		this.sendMessageToEditor(message);
 	}
@@ -237,5 +214,115 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 	dispose() {
 		this.socket.destroy();
 		this.didSendMessageEmitter.dispose();
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Abstraction over possible OpenDream installation methods.
+
+async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undefined> {
+	let configuredPath: string | undefined = workspace.getConfiguration('opendream').get('sourcePath');
+	if (!configuredPath) {
+		// TODO: add UI prompt
+		return;
+	}
+
+	for (let folder of workspace.workspaceFolders || []) {
+		if (folder.uri.scheme === 'file' && folder.uri.fsPath == configuredPath) {
+			return new ODWorkspaceFolderInstallation(folder);
+		}
+	}
+
+	return new ODSourceInstallation(configuredPath);
+}
+
+interface OpenDreamInstallation {
+	getCompilerExecution(dme: string): ProcessExecution | vscode.ShellExecution | vscode.CustomExecution;
+	getClientExecution(gamePort: number): ProcessExecution | vscode.ShellExecution | vscode.CustomExecution;
+	runServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void>;
+}
+
+class ODSourceInstallation implements OpenDreamInstallation {
+	protected path: string;
+
+	constructor(path: string) {
+		this.path = path;
+	}
+
+	getCompilerExecution(dme: string): ProcessExecution {
+		return new ProcessExecution("dotnet", [
+			"run",
+			"--project", `${this.path}/DMCompiler`,
+			"--",
+			dme,
+		]);
+	}
+
+	getClientExecution(gamePort: number): ProcessExecution | vscode.ShellExecution | vscode.CustomExecution {
+		return new ProcessExecution("dotnet", [
+			"run",
+			"--project", `${this.path}/OpenDreamClient`,
+			"--",
+			"--connect",
+			"--connect-address", `127.0.0.1:${gamePort}`,
+		])
+	}
+
+	async runServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void> {
+		// Use executeTask instead of createTerminal so it will be readable if it crashes.
+		let task = new Task(
+			{ type: 'opendream_debug_server' },
+			params.workspaceFolder || vscode.TaskScope.Workspace,
+			'OpenDream server',
+			TaskNames.SOURCE,
+			new ProcessExecution("dotnet", [
+				"run",
+				"--project", `${this.path}/OpenDreamServer`,
+				"--",
+				"--cvar", `server.port=0`,
+				"--cvar", `opendream.debug_adapter_launched=${params.debugPort}`,
+				"--cvar", `opendream.json_path=${params.json_path}`,
+			]),
+		);
+		task.presentationOptions.panel = vscode.TaskPanelKind.Dedicated;
+		vscode.tasks.executeTask(task);
+	}
+}
+
+class ODWorkspaceFolderInstallation extends ODSourceInstallation {
+	private workspaceFolder: vscode.WorkspaceFolder;
+
+	constructor(workspaceFolder: vscode.WorkspaceFolder) {
+		super(workspaceFolder.uri.fsPath);
+		this.workspaceFolder = workspaceFolder;
+	}
+
+	async runServer(params: { workspaceFolder?: vscode.WorkspaceFolder | undefined; debugPort: number; json_path: string; }): Promise<void> {
+		// Build, then run.
+		await vscode.tasks.executeTask(new Task(
+			{ type: 'opendream_build_server' },
+			this.workspaceFolder || vscode.TaskScope.Workspace,
+			'OpenDream build server',
+			TaskNames.SOURCE,
+			new ProcessExecution("dotnet", [
+				"build",
+				`${this.path}/OpenDreamServer`,
+			]),
+		));
+		await vscode.debug.startDebugging(
+			this.workspaceFolder,
+			{
+				name: "C#: OpenDream server",
+				type: "coreclr",
+				request: "launch",
+				// No preLaunchTask since we do it manually above.
+				program: "${workspaceFolder}/bin/Content.Server/OpenDreamServer",
+				args: [
+					"--cvar", `server.port=0`,
+					"--cvar", `opendream.debug_adapter_launched=${params.debugPort}`,
+					"--cvar", `opendream.json_path=${params.json_path}`,
+				],
+			}
+		);
 	}
 }
