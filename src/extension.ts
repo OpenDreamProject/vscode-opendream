@@ -142,7 +142,22 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 
 	constructor(socket: net.Socket) {
 		this.socket = socket;
-		socket.on('error', console.error);
+		// Handle any error condition by terminating debugging, to avoid the
+		// session hanging around when it isn't attached to anything. Sending
+		// "terminated" multiple times seems to be fine.
+		socket.on('error', error => {
+			console.error('OpenDreamDebugAdapter:', error);
+			this.sendMessageToEditor({ type: "event", event: "terminated" });
+		});
+		socket.on('close', () => {
+			console.log('OpenDreamDebugAdapter closed');
+			this.sendMessageToEditor({ type: "event", event: "terminated" });
+		});
+		socket.on('end', () => {
+			console.log('OpenDreamDebugAdapter ended');
+			this.sendMessageToEditor({ type: "event", event: "terminated" });
+		});
+		// Handle received data.
 		socket.on('data', received => {
 			// Append received data to buffer.
 			let old = this.buffer;
