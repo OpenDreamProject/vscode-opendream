@@ -72,7 +72,7 @@ export async function activate(context: ExtensionContext) {
 			await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 
 			// Boot the OD server pointing at that port.
-			await openDream.runServer({
+			await openDream.startServer({
 				workspaceFolder: session.workspaceFolder,
 				debugPort: server.address().port,
 				json_path: session.configuration.json_path,
@@ -254,7 +254,7 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 interface OpenDreamInstallation {
 	getCompilerExecution(dme: string): ProcessExecution | vscode.ShellExecution | vscode.CustomExecution;
 	getClientExecution(gamePort: number): ProcessExecution | vscode.ShellExecution | vscode.CustomExecution;
-	runServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void>;
+	startServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void>;
 }
 
 class ODSourceInstallation implements OpenDreamInstallation {
@@ -283,7 +283,7 @@ class ODSourceInstallation implements OpenDreamInstallation {
 		])
 	}
 
-	async runServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void> {
+	async startServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void> {
 		// Use executeTask instead of createTerminal so it will be readable if it crashes.
 		let task = new Task(
 			{ type: 'opendream_debug_server' },
@@ -312,9 +312,9 @@ class ODWorkspaceFolderInstallation extends ODSourceInstallation {
 		this.workspaceFolder = workspaceFolder;
 	}
 
-	async runServer(params: { workspaceFolder?: vscode.WorkspaceFolder | undefined; debugPort: number; json_path: string; }): Promise<void> {
+	async startServer(params: { workspaceFolder?: vscode.WorkspaceFolder | undefined; debugPort: number; json_path: string; }): Promise<void> {
 		// Build, then run.
-		await vscode.tasks.executeTask(new Task(
+		await waitForTaskToEnd(await vscode.tasks.executeTask(new Task(
 			{ type: 'opendream_build_server' },
 			this.workspaceFolder || vscode.TaskScope.Workspace,
 			'OpenDream build server',
@@ -323,7 +323,8 @@ class ODWorkspaceFolderInstallation extends ODSourceInstallation {
 				"build",
 				`${this.path}/OpenDreamServer`,
 			]),
-		));
+		)));
+
 		await vscode.debug.startDebugging(
 			this.workspaceFolder,
 			{
@@ -340,4 +341,15 @@ class ODWorkspaceFolderInstallation extends ODSourceInstallation {
 			}
 		);
 	}
+}
+
+function waitForTaskToEnd(task: vscode.TaskExecution): Promise<void> {
+	return new Promise<void>(resolve => {
+		let registration = vscode.tasks.onDidEndTask(event => {
+			if (event.execution == task) {
+				resolve();
+				registration.dispose();
+			}
+		});
+	});
 }
