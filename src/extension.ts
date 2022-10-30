@@ -258,24 +258,54 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 	function isOpenDreamSource(path: string): Promise<boolean> {
 		return exists(`${path}/OpenDream.sln`);
 	}
+	async function selectOpenDreamPath(message: string, oldValue?: string): Promise<string | undefined> {
+		let choice = await vscode.window.showInformationMessage(message, "Configure", "Not now");
+		if (choice !== "Configure") {
+			return undefined;
+		}
 
+		let selection = await vscode.window.showOpenDialog({
+			defaultUri: oldValue ? vscode.Uri.file(oldValue) : undefined,
+			canSelectFiles: false,
+			canSelectFolders: true,
+		});
+		if (!selection) {  // cancelled
+			return undefined;
+		}
+		if (selection[0].scheme !== 'file') {
+			return oldValue;
+		}
+		var value = selection[0].fsPath;
+		workspace.getConfiguration('opendream').update('sourcePath', value, vscode.ConfigurationTarget.Global);
+		return value;
+	}
+
+	// Check if one of the workspace folders is an OpenDream source checkout.
 	for (let folder of workspace.workspaceFolders || []) {
 		if (folder.uri.scheme === 'file' && await isOpenDreamSource(folder.uri.fsPath)) {
 			return new ODWorkspaceFolderInstallation(folder);
 		}
 	}
 
+	// Check if the configured path is a valid OpenDream source checkout.
 	let configuredPath: string | undefined = workspace.getConfiguration('opendream').get('sourcePath');
 	if (!configuredPath) {
-		// TODO: add UI prompt
-		return;
+		configuredPath = await selectOpenDreamPath("This feature requires an OpenDream path to be configured. Select now?", configuredPath);
+		if (!configuredPath) {
+			return;
+		}
 	}
 
-	if (await isOpenDreamSource(configuredPath)) {
-		return new ODSourceInstallation(configuredPath);
-	}
+	do {
+		if (await isOpenDreamSource(configuredPath)) {
+			return new ODSourceInstallation(configuredPath);
+		}
 
-	// When OD starts shipping a binary distribution, attempt ODBinaryDistribution here.
+		// When OD starts shipping a binary distribution, attempt ODBinaryDistribution here.
+
+		// Doesn't appear to be valid; prompt for another.
+		configuredPath = await selectOpenDreamPath("The folder you selected does not contain `OpenDream.sln`. Select again?", configuredPath);
+	} while (configuredPath);
 }
 
 // Hypothetical OD binary distribution; not used because OD doesn't have one.
