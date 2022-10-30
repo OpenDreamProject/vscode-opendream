@@ -89,8 +89,8 @@
 					{
 						"type": "opendream",
 						"request": "launch",
-						"name": "Launch OpenDream",
-						"preLaunchTask": "OpenDream: build - ${command:CurrentDME}",
+						"name": "OpenDream",
+						"preLaunchTask": "OpenDream: compile ${command:CurrentDME}",
 						"json_path": "${workspaceFolder}/${command:CurrentJson}"
 					}
 				],
@@ -100,8 +100,8 @@
 						"body": {
 							"type": "opendream",
 							"request": "launch",
-							"name": "Launch OpenDream",
-							"preLaunchTask": "^\"OpenDream: build - \\${command:CurrentDME}\"",
+							"name": "OpenDream",
+							"preLaunchTask": "^\"OpenDream: compile \\${command:CurrentDME}\"",
 							"json_path": "^\"\\${workspaceFolder}/\\${command:CurrentJson}\""
 						}
 					}
