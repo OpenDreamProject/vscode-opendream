@@ -1,6 +1,6 @@
 {
 	"name": "opendream",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"displayName": "OpenDream dev tools",
 	"description": "Developer tools for OpenDream",
 	"publisher": "platymuus",
