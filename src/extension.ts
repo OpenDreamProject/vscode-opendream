@@ -111,6 +111,9 @@ class OpenDreamTaskProvider implements TaskProvider {
 			return [];
 		}
 
+		let additionalArgs: string | undefined = workspace.getConfiguration('opendream').get('additionalArgs');
+		additionalArgs = additionalArgs ?? "" // `ProcessExecution` can't handle args that are `undefined`
+
 		let list = [];
 
 		// Add build tasks for each .dme in the workspace.
@@ -125,7 +128,7 @@ class OpenDreamTaskProvider implements TaskProvider {
 					folder,
 					TaskNames.RUN_COMPILER(file),
 					TaskNames.SOURCE,
-					openDream.getCompilerExecution(file),
+					openDream.getCompilerExecution(file, additionalArgs),
 					'$openDreamCompiler'
 				);
 				task.group = TaskGroup.Build;
@@ -242,7 +245,7 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 // Abstraction over possible OpenDream installation methods.
 
 interface OpenDreamInstallation {
-	getCompilerExecution(dme: string): ProcessExecution | vscode.ShellExecution | vscode.CustomExecution;
+	getCompilerExecution(dme: string, additionalArgs: string): ProcessExecution | vscode.ShellExecution | vscode.CustomExecution;
 	buildClient(workspaceFolder?: vscode.WorkspaceFolder): Promise<ODClient>;
 	startServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void>;
 }
@@ -317,9 +320,10 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 		this.path = path;
 	}
 
-	getCompilerExecution(dme: string): ProcessExecution {
+	getCompilerExecution(dme: string, addditionalArgs: string): ProcessExecution {
 		return new ProcessExecution(`${this.path}/DMCompiler`, [
 			dme,
+			addditionalArgs,
 		]);
 	}
 
@@ -363,12 +367,13 @@ class ODSourceInstallation implements OpenDreamInstallation {
 		this.path = path;
 	}
 
-	getCompilerExecution(dme: string): ProcessExecution {
+	getCompilerExecution(dme: string, additionalArgs: string): ProcessExecution {
 		return new ProcessExecution("dotnet", [
 			"run",
 			"--project", `${this.path}/DMCompiler`,
 			"--",
 			dme,
+			additionalArgs,
 		]);
 	}
 
