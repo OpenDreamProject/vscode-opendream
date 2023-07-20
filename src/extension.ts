@@ -380,7 +380,8 @@ class ODSourceInstallation implements OpenDreamInstallation {
 			TaskNames.SOURCE,
 			new ProcessExecution("dotnet", [
 				"build",
-				`${this.path}/OpenDreamServer`,
+				"-c", "Tools",
+				`${this.path}/OpenDreamClient`,
 			]),
 		)));
 		return {
@@ -413,6 +414,7 @@ class ODSourceInstallation implements OpenDreamInstallation {
 			new ProcessExecution("dotnet", [
 				"run",
 				"--project", `${this.path}/OpenDreamServer`,
+				"-c", "Tools",
 				"--",
 				"--cvar", `server.port=0`,
 				"--cvar", `opendream.debug_adapter_launched=${params.debugPort}`,
@@ -440,6 +442,7 @@ class ODWorkspaceFolderInstallation extends ODSourceInstallation {
 			TaskNames.SOURCE,
 			new ProcessExecution("dotnet", [
 				"build",
+				"-c", "Tools",
 				`${this.path}/OpenDreamServer`,
 			]),
 		)));
