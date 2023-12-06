@@ -1,6 +1,6 @@
 {
 	"name": "opendream",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"displayName": "OpenDream dev tools",
 	"description": "Developer tools for OpenDream",
 	"publisher": "platymuus",
@@ -38,6 +38,11 @@
 					"type": "string",
 					"default": null,
 					"description": "Path to your copy of the OpenDream source code."
+				},
+				"opendream.additionalArgs": {
+					"type": "string",
+					"default": null,
+					"description": "Additional arguments to pass to the OpenDream compiler"
 				}
 			}
 		},
@@ -45,19 +50,19 @@
 			{
 				"name": "openDreamCompiler",
 				"owner": "opendream",
-                "source": "OpenDream",
+				"source": "OpenDream",
 				"fileLocation": [
 					"relative",
 					"${workspaceFolder}"
 				],
-                "pattern": {
-                    "regexp": "^(\\w+) at (.+):(\\d+):(\\d+): (.+)$",
-                    "severity": 1,
-                    "file": 2,
-                    "line": 3,
-                    "column": 4,
-                    "message": 5
-                }
+				"pattern": {
+					"regexp": "^(\\w+) at (.+):(\\d+):(\\d+): (.+)$",
+					"severity": 1,
+					"file": 2,
+					"line": 3,
+					"column": 4,
+					"message": 5
+				}
 			}
 		],
 		"taskDefinitions": [
