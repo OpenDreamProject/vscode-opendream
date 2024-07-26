@@ -5,6 +5,9 @@ import * as net from 'net';
 import * as fs from 'fs';
 import { CancellationToken, commands, DebugProtocolMessage, ExtensionContext, FileType, ProcessExecution, Task, TaskGroup, TaskProvider, workspace } from 'vscode';
 import * as vscode from 'vscode';
+import fetch from 'node-fetch';
+import * as os from 'os';
+import { Octokit } from "@octokit/rest";
 
 const TaskNames = {
 	SOURCE: 'OpenDream',
@@ -18,6 +21,9 @@ const TaskNames = {
 };
 
 let clientTask: vscode.TaskExecution | undefined;
+
+//change this if you want to use a different fork for the binary I guess TODO: make this a setting
+const ODGithubLatest = 'https://api.github.com/repos/OpenDreamProject/OpenDream/releases'
 
 /*
 Correctness notes:
@@ -78,14 +84,13 @@ export async function activate(context: ExtensionContext) {
 			let server: net.Server;
 			let socketPromise = new Promise<net.Socket>(resolve => server = net.createServer(resolve));
 			server = server!;
-			await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-
+			await new Promise(resolve => server.listen(0, '127.0.0.1', 1, ()=>resolve));
 			let buildClientPromise = openDream.buildClient(session.workspaceFolder);
 
 			// Boot the OD server pointing at that port.
 			await openDream.startServer({
 				workspaceFolder: session.workspaceFolder,
-				debugPort: server.address().port,
+				debugPort: (server.address() as net.AddressInfo).port,
 				json_path: session.configuration.json_path,
 			});
 
@@ -242,7 +247,7 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 // Abstraction over possible OpenDream installation methods.
 
 interface OpenDreamInstallation {
-	getCompilerExecution(dme: string): ProcessExecution | vscode.ShellExecution | vscode.CustomExecution;
+	getCompilerExecution(dme: string): ProcessExecution | vscode.ShellExecution;
 	buildClient(workspaceFolder?: vscode.WorkspaceFolder): Promise<ODClient>;
 	startServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void>;
 }
@@ -258,7 +263,30 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 	function isOpenDreamSource(path: string): Promise<boolean> {
 		return exists(`${path}/OpenDream.sln`);
 	}
-	async function selectOpenDreamPath(message: string, oldValue?: string): Promise<string | undefined> {
+	async function ensureOpenDreamBinary(path: string): Promise<boolean> {
+		const arch = os.arch(), platform = os.platform();
+		console.log(arch)
+		console.log(platform)
+		let result = await fetch(ODGithubLatest); //if it errors, report that to the extension engine
+		if(result.status != 200)
+			throw new Error(`Failed to fetch OpenDream releases: ${result.statusText}`);
+
+		
+		const octokit = new Octokit();
+		octokit.rest.
+
+		let json = await result.json() as Array<JSON>;
+		let latestInfo = json[0];
+		console.log(latestInfo)
+		let compilerURL
+		let runtimeURL
+		(latestInfo['assets'] as Array<JSON>).forEach(element => {
+			console.log(element);
+		});
+		return new Promise(resolve => false);	
+
+	}
+/*	async function selectOpenDreamPath(message: string, oldValue?: string): Promise<string | undefined> {
 		let choice = await vscode.window.showInformationMessage(message, "Configure", "Not now");
 		if (choice !== "Configure") {
 			return undefined;
@@ -278,7 +306,7 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 		var value = selection[0].fsPath;
 		workspace.getConfiguration('opendream').update('sourcePath', value, vscode.ConfigurationTarget.Global);
 		return value;
-	}
+	} */
 
 	// Check if one of the workspace folders is an OpenDream source checkout.
 	for (let folder of workspace.workspaceFolders || []) {
@@ -289,23 +317,23 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 
 	// Check if the configured path is a valid OpenDream source checkout.
 	let configuredPath: string | undefined = workspace.getConfiguration('opendream').get('sourcePath');
-	if (!configuredPath) {
-		configuredPath = await selectOpenDreamPath("This feature requires an OpenDream path to be configured. Select now?", configuredPath);
-		if (!configuredPath) {
-			return;
-		}
+	if(!configuredPath)
+		configuredPath = "/tmp/"
+	//if (!configuredPath) {
+	//	configuredPath = await selectOpenDreamPath("This feature requires an OpenDream path to be configured. Select now?", configuredPath);
+	//	if (!configuredPath) {
+	//		return;
+///		}
+	//}
+
+	
+	if (await isOpenDreamSource(configuredPath)) {
+		return new ODSourceInstallation(configuredPath);
+	} else if (await ensureOpenDreamBinary(configuredPath)) {
+		return new ODBinaryDistribution(configuredPath);
+	} else {
+		throw new Error(`Couldn't get OD binary or source. Please report this to the extension maintainer.`);
 	}
-
-	do {
-		if (await isOpenDreamSource(configuredPath)) {
-			return new ODSourceInstallation(configuredPath);
-		}
-
-		// When OD starts shipping a binary distribution, attempt ODBinaryDistribution here.
-
-		// Doesn't appear to be valid; prompt for another.
-		configuredPath = await selectOpenDreamPath("The folder you selected does not contain `OpenDream.sln`. Select again?", configuredPath);
-	} while (configuredPath);
 }
 
 // Hypothetical OD binary distribution; not used because OD doesn't have one.
