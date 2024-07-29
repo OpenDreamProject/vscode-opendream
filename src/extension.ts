@@ -291,17 +291,14 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 		let doUpdate = true;
 		//check published_at against local file date
 		if (fs.existsSync(path +"/"+ ODBinVersionTagFile)) {
-			fs.readFile(path +"/"+ ODBinVersionTagFile, 'utf8', (err, txt) => {
-				if (err) {
-					console.error("Unexpected error checking up-to-date, updating anyway: " + err)
-					doUpdate = true;
-				} else if (txt == data.published_at) {
-					console.log("OpenDream binary is up to date")
-					doUpdate = false;
-				} else {
-					doUpdate = true;
-				}
-			})
+			let txt = fs.readFileSync(path +"/"+ ODBinVersionTagFile, 'utf8')
+			if (txt == data.published_at) {
+				console.log("OpenDream binary is up to date")
+				doUpdate = false;
+			} else {
+				console.log("OpenDream binary is out of date")
+				doUpdate = true;
+			}
 		}
 
 		if (doUpdate) {
@@ -347,7 +344,7 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 			})
 			
 			//create tag file for update checking
-			fs.writeFile(path + ODBinVersionTagFile, data.published_at!, (err) => {
+			await fs.writeFile(path +"/"+ ODBinVersionTagFile, data.published_at!, (err) => {
 				if (err) {
 					console.error("Error writing tag file: " + err)
 				}
