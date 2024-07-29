@@ -8,6 +8,8 @@ import * as vscode from 'vscode';
 import fetch from 'node-fetch';
 import * as os from 'os';
 import { Octokit } from "@octokit/rest";
+import * as zlib from 'zlib';
+import * as tar from 'tar';
 
 const TaskNames = {
 	SOURCE: 'OpenDream',
@@ -24,6 +26,8 @@ let clientTask: vscode.TaskExecution | undefined;
 
 //change this if you want to use a different fork for the binary I guess TODO: make this a setting
 const ODGithubLatest = 'https://api.github.com/repos/OpenDreamProject/OpenDream/releases'
+//tag file to keep track of downloaded version
+const ODBinVersionTagFile = "latestODBuild.txt"
 
 /*
 Correctness notes:
@@ -84,7 +88,7 @@ export async function activate(context: ExtensionContext) {
 			let server: net.Server;
 			let socketPromise = new Promise<net.Socket>(resolve => server = net.createServer(resolve));
 			server = server!;
-			await new Promise(resolve => server.listen(0, '127.0.0.1', 1, ()=>resolve));
+			await new Promise(resolve => server.listen(0, '127.0.0.1', 1, () => resolve));
 			let buildClientPromise = openDream.buildClient(session.workspaceFolder);
 
 			// Boot the OD server pointing at that port.
@@ -263,50 +267,114 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 	function isOpenDreamSource(path: string): Promise<boolean> {
 		return exists(`${path}/OpenDream.sln`);
 	}
-	async function ensureOpenDreamBinary(path: string): Promise<boolean> {
+	async function ensureOpenDreamBinary(path: string): Promise<void> {
 		const arch = os.arch(), platform = os.platform();
 		console.log(arch)
 		console.log(platform)
 		let result = await fetch(ODGithubLatest); //if it errors, report that to the extension engine
-		if(result.status != 200)
+		if (result.status != 200)
 			throw new Error(`Failed to fetch OpenDream releases: ${result.statusText}`);
 
-		
+
 		const octokit = new Octokit();
-		octokit.rest.
-
-		let json = await result.json() as Array<JSON>;
-		let latestInfo = json[0];
-		console.log(latestInfo)
-		let compilerURL
-		let runtimeURL
-		(latestInfo['assets'] as Array<JSON>).forEach(element => {
-			console.log(element);
+		let response = await octokit.rest.repos.getReleaseByTag({
+			owner: 'OpenDreamProject',
+			repo: 'OpenDream',
+			tag: 'latest'
+		}).catch((error) => {
+			console.log(error)
+			throw new Error(`Failed to fetch OpenDream releases: ${error}`);
 		});
-		return new Promise(resolve => false);	
+		if (response.status != 200)
+			throw new Error(`Failed to fetch OpenDream releases: HTTP error code ${response.status}`);
+		const data = response.data
+		let doUpdate = true;
+		//check published_at against local file date
+		if (fs.existsSync(path +"/"+ ODBinVersionTagFile)) {
+			fs.readFile(path +"/"+ ODBinVersionTagFile, 'utf8', (err, txt) => {
+				if (err) {
+					console.error("Unexpected error checking up-to-date, updating anyway: " + err)
+					doUpdate = true;
+				} else if (txt == data.published_at) {
+					console.log("OpenDream binary is up to date")
+					doUpdate = false;
+				} else {
+					doUpdate = true;
+				}
+			})
+		}
 
+		if (doUpdate) {
+			console.log("Updating OpenDream binaries");
+			var compilerURL
+			var serverURL
+			data.assets.forEach((asset) => {
+				if (asset.name.includes(arch) && asset.name.includes(platform)) {
+					console.log(asset)
+					if (asset.name.includes("DMCompiler"))
+						compilerURL = asset.browser_download_url
+					else if (asset.name.includes("OpenDreamServer"))
+						serverURL = asset.browser_download_url
+				}
+			})
+			if (compilerURL == undefined || serverURL == undefined) {
+				throw new Error(`Failed to find a suitable binary for your platform`)
+			}
+
+			await fetch(compilerURL).then((response) => {
+				const dest = fs.createWriteStream(path + "/DMCompiler.tar.gz");
+				response.body?.pipe(dest);
+				dest.on('finish', () => {
+					dest.close();
+					console.log("Downloaded DMCompiler to " + path);
+					extractTarGz(path + "DMCompiler.tar.gz", path).catch((e) => {
+						throw new Error("Unable to extract DMCompiler.tar.gz downloaded from github! Error: " + e)
+					})
+				});
+			})
+			
+
+			await fetch(serverURL).then((response) => {
+				const dest = fs.createWriteStream(path + "/OpenDreamServer.tar.gz");
+				response.body?.pipe(dest);
+				dest.on('finish', () => {
+					dest.close();
+					console.log("Downloaded Server w/ tools to " + path);
+					extractTarGz(path + "/OpenDreamServer.tar.gz", path).catch(e => {
+						throw new Error("Unable to extract OpenDreamServer.tar.gz downloaded from github! Error: " + e)
+					})
+				});
+			})
+			
+			//create tag file for update checking
+			fs.writeFile(path + ODBinVersionTagFile, data.published_at!, (err) => {
+				if (err) {
+					console.error("Error writing tag file: " + err)
+				}
+			});
+		}
 	}
-/*	async function selectOpenDreamPath(message: string, oldValue?: string): Promise<string | undefined> {
-		let choice = await vscode.window.showInformationMessage(message, "Configure", "Not now");
-		if (choice !== "Configure") {
-			return undefined;
-		}
-
-		let selection = await vscode.window.showOpenDialog({
-			defaultUri: oldValue ? vscode.Uri.file(oldValue) : undefined,
-			canSelectFiles: false,
-			canSelectFolders: true,
-		});
-		if (!selection) {  // cancelled
-			return undefined;
-		}
-		if (selection[0].scheme !== 'file') {
-			return oldValue;
-		}
-		var value = selection[0].fsPath;
-		workspace.getConfiguration('opendream').update('sourcePath', value, vscode.ConfigurationTarget.Global);
-		return value;
-	} */
+	/*	async function selectOpenDreamPath(message: string, oldValue?: string): Promise<string | undefined> {
+			let choice = await vscode.window.showInformationMessage(message, "Configure", "Not now");
+			if (choice !== "Configure") {
+				return undefined;
+			}
+	
+			let selection = await vscode.window.showOpenDialog({
+				defaultUri: oldValue ? vscode.Uri.file(oldValue) : undefined,
+				canSelectFiles: false,
+				canSelectFolders: true,
+			});
+			if (!selection) {  // cancelled
+				return undefined;
+			}
+			if (selection[0].scheme !== 'file') {
+				return oldValue;
+			}
+			var value = selection[0].fsPath;
+			workspace.getConfiguration('opendream').update('sourcePath', value, vscode.ConfigurationTarget.Global);
+			return value;
+		} */
 
 	// Check if one of the workspace folders is an OpenDream source checkout.
 	for (let folder of workspace.workspaceFolders || []) {
@@ -317,22 +385,23 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 
 	// Check if the configured path is a valid OpenDream source checkout.
 	let configuredPath: string | undefined = workspace.getConfiguration('opendream').get('sourcePath');
-	if(!configuredPath)
-		configuredPath = "/tmp/"
+	if (!configuredPath)
+		configuredPath = "/tmp/extensiontest"
 	//if (!configuredPath) {
 	//	configuredPath = await selectOpenDreamPath("This feature requires an OpenDream path to be configured. Select now?", configuredPath);
 	//	if (!configuredPath) {
 	//		return;
-///		}
+	///		}
 	//}
 
-	
+
 	if (await isOpenDreamSource(configuredPath)) {
+		console.log("source")
 		return new ODSourceInstallation(configuredPath);
-	} else if (await ensureOpenDreamBinary(configuredPath)) {
-		return new ODBinaryDistribution(configuredPath);
 	} else {
-		throw new Error(`Couldn't get OD binary or source. Please report this to the extension maintainer.`);
+		console.log("binary")
+		await ensureOpenDreamBinary(configuredPath) 
+		return new ODBinaryDistribution(configuredPath);
 	}
 }
 
@@ -508,4 +577,24 @@ function startDedicatedTask(task: vscode.Task): Thenable<vscode.TaskExecution> {
 	task.presentationOptions.panel = vscode.TaskPanelKind.Dedicated;
 	task.presentationOptions.showReuseMessage = false;
 	return vscode.tasks.executeTask(task);
+}
+
+// Function to extract a .tar.gz file for unpacking bins from github
+// thanks chatgpt <3
+async function extractTarGz(tarGzPath: string, outputDir: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		// Create a read stream for the .tar.gz file
+		const readStream = fs.createReadStream(tarGzPath);
+		// Create a gunzip stream to decompress the .gz file
+		const gunzipStream = zlib.createGunzip();
+		// Create a tar extract stream to extract the tar contents
+		const extractStream = tar.extract({ cwd: outputDir });
+
+		// Pipe the streams together: read -> gunzip -> extract
+		readStream
+			.pipe(gunzipStream)
+			.pipe(extractStream)
+			.on('error', reject) // Handle errors
+			.on('finish', resolve); // Resolve when done
+	});
 }

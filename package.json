@@ -132,7 +132,9 @@
 		"eslint": "^8.26.0",
 		"ts-loader": "^9.5.1",
 		"typescript": "^5.5.2",
-		"@octokit/rest":"^21.0.1"
+		"@octokit/rest":"^21.0.1",
+		"zlib":"^1.0.5",
+		"tar":"^7.4.3"
 	},
 	"dependencies": {
 		"node-fetch": "^3.3.2"
