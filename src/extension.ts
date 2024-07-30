@@ -423,7 +423,7 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 	}
 
 	getCompilerExecution(dme: string): ProcessExecution {
-		return new ProcessExecution(`${this.path}/DMCompiler_${os.platform}-${os.arch}/DMCompiler`, [
+		return new ProcessExecution(`${this.path}/DMCompiler_${os.platform}-${os.arch}/DMCompiler${os.platform()==="win32" ? ".exe" : ""}`, [
 			dme,
 		]);
 	}
@@ -438,7 +438,7 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 					workspaceFolder || vscode.TaskScope.Workspace,
 					TaskNames.RUN_CLIENT,
 					TaskNames.SOURCE,
-					new ProcessExecution(`/home/amy/OpenDream/bin/Content.Client/OpenDreamClient`, [
+					new ProcessExecution(`/home/amy/OpenDream/bin/Content.Client/OpenDreamClient${os.platform()==="win32" ? ".exe" : ""}`, [
 						"--connect",
 						"--connect-address", `127.0.0.1:${gamePort}`,
 					]),
@@ -449,13 +449,13 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 
 	async startServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void> {
 		console.log("Starting server")
-		console.log(`${this.path}/OpenDreamServer_${os.platform}-${os.arch}/Robust.Server debugport:${params.debugPort}`)
+		console.log(`${this.path}/OpenDreamServer_${os.platform}-${os.arch}/Robust.Server${os.platform()==="win32" ? ".exe" : ""} debugport:${params.debugPort}`)
 		await startDedicatedTask(new Task(
 			{ type: 'opendream_debug_server' },
 			params.workspaceFolder || vscode.TaskScope.Workspace,
 			TaskNames.RUN_SERVER,
 			TaskNames.SOURCE,
-			new ProcessExecution(`${this.path}/OpenDreamServer_${os.platform}-${os.arch}/Robust.Server`, [
+			new ProcessExecution(`${this.path}/OpenDreamServer_${os.platform}-${os.arch}/Robust.Server${os.platform()==="win32" ? ".exe" : ""}`, [
 				"--cvar", `server.port=0`,
 				"--cvar", `opendream.debug_adapter_launched=${params.debugPort}`,
 				"--cvar", `opendream.json_path=${params.json_path}`,
