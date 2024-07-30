@@ -279,7 +279,6 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 
 	// Checks if the OpenDream binaries exist and are up-to-date, and downloads them if not
 	async function updateOpenDreamBinary(path: string): Promise<void> {
-		const arch = os.arch(), platform = os.platform();
 		if(!fs.existsSync(path))
 			fs.mkdirSync(path);
 
@@ -316,7 +315,7 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 			var compilerURL
 			var serverURL
 			data.assets.forEach((asset) => {
-				if (asset.name.includes(arch) && asset.name.includes(platform)) {
+				if (asset.name.includes(getArchSuffix())) {
 					console.log(asset)
 					if (asset.name.includes("DMCompiler"))
 						compilerURL = asset.browser_download_url
@@ -325,7 +324,7 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 				}
 			})
 			if (compilerURL == undefined || serverURL == undefined) {
-				vscode.window.showErrorMessage(`Failed to find a suitable OpenDream binary for your platform (${platform} ${arch})!`)
+				vscode.window.showErrorMessage(`Failed to find a suitable OpenDream binary for your platform (${getArchSuffix()}`)
 				return
 			}
 
@@ -390,7 +389,7 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 	}
 
 	getCompilerExecution(dme: string): ProcessExecution {
-		return new ProcessExecution(`${this.path}/DMCompiler_${os.platform}-${os.arch}/DMCompiler${os.platform()==="win32" ? ".exe" : ""}`, [
+		return new ProcessExecution(`${this.path}/DMCompiler_${getArchSuffix()}/DMCompiler${os.platform()==="win32" ? ".exe" : ""}`, [
 			dme,
 		]);
 	}
@@ -416,13 +415,13 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 
 	async startServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void> {
 		console.log("Starting server")
-		console.log(`${this.path}/OpenDreamServer_${os.platform}-${os.arch}/Robust.Server${os.platform()==="win32" ? ".exe" : ""} debugport:${params.debugPort}`)
+		console.log(`${this.path}/OpenDreamServer_${getArchSuffix()}/Robust.Server${os.platform()==="win32" ? ".exe" : ""} debugport:${params.debugPort}`)
 		await startDedicatedTask(new Task(
 			{ type: 'opendream_debug_server' },
 			params.workspaceFolder || vscode.TaskScope.Workspace,
 			TaskNames.RUN_SERVER,
 			TaskNames.SOURCE,
-			new ProcessExecution(`${this.path}/OpenDreamServer_${os.platform}-${os.arch}/Robust.Server${os.platform()==="win32" ? ".exe" : ""}`, [
+			new ProcessExecution(`${this.path}/OpenDreamServer_${getArchSuffix()}/Robust.Server${os.platform()==="win32" ? ".exe" : ""}`, [
 				"--cvar", `server.port=0`,
 				"--cvar", `opendream.debug_adapter_launched=${params.debugPort}`,
 				"--cvar", `opendream.json_path=${params.json_path}`,
@@ -576,4 +575,12 @@ async function extractTarGz(tarGzPath: string, outputDir: string): Promise<void>
 			.on('error', reject) // Handle errors
 			.on('finish', resolve); // Resolve when done
 	});
+}
+
+function getArchSuffix(): string {
+	let arch:string = os.arch()
+	let platform:string = os.platform()
+	if(platform==="win32")
+		platform = "win"
+	return `${platform}-${arch}`
 }
