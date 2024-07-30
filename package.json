@@ -38,7 +38,7 @@
 				"opendream.sourcePath": {
 					"type": "string",
 					"default": null,
-					"description": "Path to your copy of the OpenDream source code."
+					"description": "Path to your copy of the OpenDream source code. This should be the top level folder containing OpenDream.sln. Leave empty to use pre-compiled binaries instead."
 				}
 			}
 		},
@@ -135,7 +135,6 @@
 		"typescript": "^5.5.2"		
 	},
 	"dependencies": {
-		"@vscode/vsce": "^2.31.1",
 		"@octokit/rest": "^21.0.1",
 		"node-fetch": "3.3.2",
 		"tar": "^7.4.3",

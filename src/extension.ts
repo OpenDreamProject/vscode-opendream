@@ -109,30 +109,6 @@ export async function activate(context: ExtensionContext) {
 	}));
 
 	storagePath = context.storageUri?.fsPath
-
-	//TODO: add button to extension settings to run this
-		/*	async function selectOpenDreamPath(message: string, oldValue?: string): Promise<string | undefined> {
-			let choice = await vscode.window.showInformationMessage(message, "Configure", "Not now");
-			if (choice !== "Configure") {
-				return undefined;
-			}
-	
-			let selection = await vscode.window.showOpenDialog({
-				defaultUri: oldValue ? vscode.Uri.file(oldValue) : undefined,
-				canSelectFiles: false,
-				canSelectFolders: true,
-			});
-			if (!selection) {  // cancelled
-				return undefined;
-			}
-			if (selection[0].scheme !== 'file') {
-				return oldValue;
-			}
-			var value = selection[0].fsPath;
-			workspace.getConfiguration('opendream').update('sourcePath', value, vscode.ConfigurationTarget.Global);
-			return value;
-		} */
-
 }
 
 // ----------------------------------------------------------------------------
@@ -396,15 +372,6 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 
 	// Check if the configured path is a valid OpenDream source checkout.
 	let configuredPath: string | undefined = workspace.getConfiguration('opendream').get('sourcePath');
-	//if (!configuredPath) {
-	//	configuredPath = await selectOpenDreamPath("This feature requires an OpenDream path to be configured. Select now?", configuredPath);
-	//	if (!configuredPath) {
-	//		return;
-	///		}
-	//}
-
-	console.log("configuredPath: " + configuredPath)
-	console.log("storagePath: " + storagePath)
 	if (configuredPath && await isOpenDreamSource(configuredPath)) {
 		console.log("source")
 		return new ODSourceInstallation(configuredPath);
