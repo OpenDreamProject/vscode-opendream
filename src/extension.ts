@@ -24,10 +24,10 @@ const TaskNames = {
 
 let clientTask: vscode.TaskExecution | undefined;
 
-//change this if you want to use a different fork for the binary I guess TODO: make this a setting
-const ODGithubLatest = 'https://api.github.com/repos/OpenDreamProject/OpenDream/releases'
 //tag file to keep track of downloaded version
 const ODBinVersionTagFile = "latestODBuild.txt"
+
+let storagePath: string | undefined;
 
 /*
 Correctness notes:
@@ -85,26 +85,54 @@ export async function activate(context: ExtensionContext) {
 			console.log('Starting OpenDream debug session ----------');
 
 			// Start a server and listen on an arbitrary port.
-			let server: net.Server;
-			let socketPromise = new Promise<net.Socket>(resolve => server = net.createServer(resolve));
-			server = server!;
-			await new Promise(resolve => server.listen(0, '127.0.0.1', 1, () => resolve));
-			let buildClientPromise = openDream.buildClient(session.workspaceFolder);
-
-			// Boot the OD server pointing at that port.
-			await openDream.startServer({
-				workspaceFolder: session.workspaceFolder,
-				debugPort: (server.address() as net.AddressInfo).port,
-				json_path: session.configuration.json_path,
+			const socketPromise = new Promise<net.Socket>((resolve) => {
+				const server = net.createServer((socket) => {
+					server.close();
+					resolve(socket);
+				});
+		
+				server.listen(0, () => {
+					console.log("socket setup")
+					openDream.startServer({
+						workspaceFolder: session.workspaceFolder,
+						debugPort: (server.address() as net.AddressInfo).port,
+						json_path: session.configuration.json_path,
+					});
+				});
 			});
-
+			
+			let buildClientPromise = openDream.buildClient(session.workspaceFolder);
 			// Wait for the OD server to connect back to us, then stop listening.
 			let socket = await socketPromise;
-			server!.close(); // No need to wait for this before proceeding, so just let it ride.
-
 			return new vscode.DebugAdapterInlineImplementation(new OpenDreamDebugAdapter(socket, buildClientPromise));
 		}
 	}));
+
+	storagePath = context.storageUri?.fsPath
+
+	//TODO: add button to extension settings to run this
+		/*	async function selectOpenDreamPath(message: string, oldValue?: string): Promise<string | undefined> {
+			let choice = await vscode.window.showInformationMessage(message, "Configure", "Not now");
+			if (choice !== "Configure") {
+				return undefined;
+			}
+	
+			let selection = await vscode.window.showOpenDialog({
+				defaultUri: oldValue ? vscode.Uri.file(oldValue) : undefined,
+				canSelectFiles: false,
+				canSelectFolders: true,
+			});
+			if (!selection) {  // cancelled
+				return undefined;
+			}
+			if (selection[0].scheme !== 'file') {
+				return oldValue;
+			}
+			var value = selection[0].fsPath;
+			workspace.getConfiguration('opendream').update('sourcePath', value, vscode.ConfigurationTarget.Global);
+			return value;
+		} */
+
 }
 
 // ----------------------------------------------------------------------------
@@ -261,32 +289,37 @@ interface ODClient {
 }
 
 async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undefined> {
-	function exists(path: string): Promise<boolean> {
-		return new Promise(resolve => fs.exists(path, resolve));
-	}
+	// Check if the path is an OpenDream source checkout.
 	function isOpenDreamSource(path: string): Promise<boolean> {
-		return exists(`${path}/OpenDream.sln`);
+		return new Promise((resolve,reject) => {
+			try {
+				const exists = fs.existsSync(`${path}/OpenDream.sln`);
+				resolve(exists);
+			} catch (error) {
+				reject(error);
+			}
+		});
 	}
-	async function ensureOpenDreamBinary(path: string): Promise<void> {
+
+	// Checks if the OpenDream binaries exist and are up-to-date, and downloads them if not
+	async function updateOpenDreamBinary(path: string): Promise<void> {
 		const arch = os.arch(), platform = os.platform();
-		console.log(arch)
-		console.log(platform)
-		let result = await fetch(ODGithubLatest); //if it errors, report that to the extension engine
-		if (result.status != 200)
-			throw new Error(`Failed to fetch OpenDream releases: ${result.statusText}`);
+		if(!fs.existsSync(path))
+			fs.mkdirSync(path);
 
-
+		console.log("updateOpenDreamBinary")
 		const octokit = new Octokit();
 		let response = await octokit.rest.repos.getReleaseByTag({
 			owner: 'OpenDreamProject',
 			repo: 'OpenDream',
 			tag: 'latest'
-		}).catch((error) => {
-			console.log(error)
-			throw new Error(`Failed to fetch OpenDream releases: ${error}`);
-		});
-		if (response.status != 200)
-			throw new Error(`Failed to fetch OpenDream releases: HTTP error code ${response.status}`);
+		})
+
+		if (response.status != 200) {
+			vscode.window.showErrorMessage(`Failed to fetch OpenDream releases: HTTP error code ${response.status}`);
+			return;
+		}
+
 		const data = response.data
 		let doUpdate = true;
 		//check published_at against local file date
@@ -303,6 +336,7 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 
 		if (doUpdate) {
 			console.log("Updating OpenDream binaries");
+			vscode.window.showInformationMessage("OpenDream binaries are out of date, updating...")
 			var compilerURL
 			var serverURL
 			data.assets.forEach((asset) => {
@@ -315,7 +349,8 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 				}
 			})
 			if (compilerURL == undefined || serverURL == undefined) {
-				throw new Error(`Failed to find a suitable binary for your platform`)
+				vscode.window.showErrorMessage(`Failed to find a suitable OpenDream binary for your platform (${platform} ${arch})!`)
+				return
 			}
 
 			await fetch(compilerURL).then((response) => {
@@ -324,8 +359,8 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 				dest.on('finish', () => {
 					dest.close();
 					console.log("Downloaded DMCompiler to " + path);
-					extractTarGz(path + "DMCompiler.tar.gz", path).catch((e) => {
-						throw new Error("Unable to extract DMCompiler.tar.gz downloaded from github! Error: " + e)
+					extractTarGz(path + "/DMCompiler.tar.gz", path).catch((e) => {
+						vscode.window.showErrorMessage("Unable to extract DMCompiler.tar.gz downloaded from github! Error: " + e)
 					})
 				});
 			})
@@ -338,7 +373,7 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 					dest.close();
 					console.log("Downloaded Server w/ tools to " + path);
 					extractTarGz(path + "/OpenDreamServer.tar.gz", path).catch(e => {
-						throw new Error("Unable to extract OpenDreamServer.tar.gz downloaded from github! Error: " + e)
+						vscode.window.showErrorMessage("Unable to extract OpenDreamServer.tar.gz downloaded from github! Error: " + e)
 					})
 				});
 			})
@@ -351,27 +386,6 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 			});
 		}
 	}
-	/*	async function selectOpenDreamPath(message: string, oldValue?: string): Promise<string | undefined> {
-			let choice = await vscode.window.showInformationMessage(message, "Configure", "Not now");
-			if (choice !== "Configure") {
-				return undefined;
-			}
-	
-			let selection = await vscode.window.showOpenDialog({
-				defaultUri: oldValue ? vscode.Uri.file(oldValue) : undefined,
-				canSelectFiles: false,
-				canSelectFolders: true,
-			});
-			if (!selection) {  // cancelled
-				return undefined;
-			}
-			if (selection[0].scheme !== 'file') {
-				return oldValue;
-			}
-			var value = selection[0].fsPath;
-			workspace.getConfiguration('opendream').update('sourcePath', value, vscode.ConfigurationTarget.Global);
-			return value;
-		} */
 
 	// Check if one of the workspace folders is an OpenDream source checkout.
 	for (let folder of workspace.workspaceFolders || []) {
@@ -382,8 +396,6 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 
 	// Check if the configured path is a valid OpenDream source checkout.
 	let configuredPath: string | undefined = workspace.getConfiguration('opendream').get('sourcePath');
-	if (!configuredPath)
-		configuredPath = "/tmp/extensiontest"
 	//if (!configuredPath) {
 	//	configuredPath = await selectOpenDreamPath("This feature requires an OpenDream path to be configured. Select now?", configuredPath);
 	//	if (!configuredPath) {
@@ -391,19 +403,18 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 	///		}
 	//}
 
-
-	if (await isOpenDreamSource(configuredPath)) {
+	console.log("configuredPath: " + configuredPath)
+	console.log("storagePath: " + storagePath)
+	if (configuredPath && await isOpenDreamSource(configuredPath)) {
 		console.log("source")
 		return new ODSourceInstallation(configuredPath);
 	} else {
 		console.log("binary")
-		await ensureOpenDreamBinary(configuredPath) 
-		return new ODBinaryDistribution(configuredPath);
+		await updateOpenDreamBinary(storagePath!) 
+		return new ODBinaryDistribution(storagePath!);
 	}
 }
 
-// Hypothetical OD binary distribution; not used because OD doesn't have one.
-// @ts-ignore
 class ODBinaryDistribution implements OpenDreamInstallation {
 	protected path: string;
 
@@ -412,20 +423,22 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 	}
 
 	getCompilerExecution(dme: string): ProcessExecution {
-		return new ProcessExecution(`${this.path}/DMCompiler`, [
+		return new ProcessExecution(`${this.path}/DMCompiler_${os.platform}-${os.arch}/DMCompiler`, [
 			dme,
 		]);
 	}
 
 	async buildClient(workspaceFolder?: vscode.WorkspaceFolder): Promise<ODClient> {
+		
 		return {
 			start: async (gamePort) => {
+				console.log(`Running client ${gamePort}`)
 				return await startDedicatedTask(new Task(
 					{ type: 'opendream_debug_client' },
 					workspaceFolder || vscode.TaskScope.Workspace,
 					TaskNames.RUN_CLIENT,
 					TaskNames.SOURCE,
-					new ProcessExecution(`${this.path}/OpenDreamClient`, [
+					new ProcessExecution(`/home/amy/OpenDream/bin/Content.Client/OpenDreamClient`, [
 						"--connect",
 						"--connect-address", `127.0.0.1:${gamePort}`,
 					]),
@@ -435,12 +448,14 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 	}
 
 	async startServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void> {
+		console.log("Starting server")
+		console.log(`${this.path}/OpenDreamServer_${os.platform}-${os.arch}/Robust.Server debugport:${params.debugPort}`)
 		await startDedicatedTask(new Task(
 			{ type: 'opendream_debug_server' },
 			params.workspaceFolder || vscode.TaskScope.Workspace,
 			TaskNames.RUN_SERVER,
 			TaskNames.SOURCE,
-			new ProcessExecution(`${this.path}/OpenDreamServer`, [
+			new ProcessExecution(`${this.path}/OpenDreamServer_${os.platform}-${os.arch}/Robust.Server`, [
 				"--cvar", `server.port=0`,
 				"--cvar", `opendream.debug_adapter_launched=${params.debugPort}`,
 				"--cvar", `opendream.json_path=${params.json_path}`,
