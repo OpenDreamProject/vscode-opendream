@@ -82,7 +82,7 @@ export async function activate(context: ExtensionContext) {
 			if (!openDream) {
 				return null;
 			}
-			console.log('Starting OpenDream debug session ----------');
+			console.log('---------- Starting OpenDream debug session ----------');
 
 			// Start a server and listen on an arbitrary port.
 			const socketPromise = new Promise<net.Socket>((resolve) => {
@@ -282,7 +282,6 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 		if(!fs.existsSync(path))
 			fs.mkdirSync(path);
 
-		console.log("updateOpenDreamBinary")
 		const octokit = new Octokit();
 		let response = await octokit.rest.repos.getReleaseByTag({
 			owner: 'OpenDreamProject',
@@ -354,9 +353,9 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 			})
 			
 			//create tag file for update checking
-			await fs.writeFile(path +"/"+ ODBinVersionTagFile, data.published_at!, (err) => {
-				if (err) {
-					console.error("Error writing tag file: " + err)
+			await fs.writeFile(path +"/"+ ODBinVersionTagFile, data.published_at!, (e) => {
+				if (e) {
+					vscode.window.showErrorMessage("Error writing tag file: " + e)
 				}
 			});
 		}
@@ -398,7 +397,6 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 		
 		return {
 			start: async (gamePort) => {
-				console.log(`Running client ${gamePort}`)
 				return await startDedicatedTask(new Task(
 					{ type: 'opendream_debug_client' },
 					workspaceFolder || vscode.TaskScope.Workspace,
@@ -414,8 +412,6 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 	}
 
 	async startServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void> {
-		console.log("Starting server")
-		console.log(`${this.path}/OpenDreamServer_${getArchSuffix()}/Robust.Server${os.platform()==="win32" ? ".exe" : ""} debugport:${params.debugPort}`)
 		await startDedicatedTask(new Task(
 			{ type: 'opendream_debug_server' },
 			params.workspaceFolder || vscode.TaskScope.Workspace,
