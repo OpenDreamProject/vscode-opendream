@@ -391,6 +391,8 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 
 		return Promise.all(returnPromiseList).then(()=>{
 			console.log("updateOpenDreamBinary completed")
+			if(doUpdateOD || doUpdateLauncher)
+				vscode.window.showInformationMessage("OpenDream binaries updated successfully!")
 		});
 	}
 
