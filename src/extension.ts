@@ -95,7 +95,6 @@ export async function activate(context: ExtensionContext) {
 				});
 		
 				server.listen(0, () => {
-					console.log("socket setup")
 					openDream.startServer({
 						workspaceFolder: session.workspaceFolder,
 						debugPort: (server.address() as net.AddressInfo).port,
@@ -124,10 +123,8 @@ class OpenDreamTaskProvider implements TaskProvider {
 	async provideTasks(token?: CancellationToken): Promise<Task[]> {
 		let openDream = await getOpenDreamInstallation();
 		if (!openDream) {
-			console.log("failed to get in task provider")
 			return [];
 		}
-		console.log("task provider")
 		let list = [];
 
 		// Add build tasks for each .dme in the workspace.
@@ -359,7 +356,6 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 			var serverURL
 			data.assets.forEach((asset) => {
 				if (asset.name.includes(getArchSuffix())) {
-					console.log(asset)
 					if (asset.name.includes("DMCompiler"))
 						compilerURL = asset.browser_download_url
 					else if (asset.name.includes("OpenDreamServer_TOOLS"))
@@ -405,10 +401,10 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 	// Check if the configured path is a valid OpenDream source checkout.
 	let configuredPath: string | undefined = workspace.getConfiguration('opendream').get('sourcePath');
 	if (configuredPath && await isOpenDreamSource(configuredPath)) {
-		console.log("source")
+		console.log("Using source installation")
 		return new ODSourceInstallation(configuredPath);
 	} else {
-		console.log("binary")
+		console.log("Using binary installation")
 		return updateOpenDreamBinary(storagePath!).then(()=>{return new ODBinaryDistribution(storagePath!);})		
 	}
 }
@@ -417,7 +413,6 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 	protected path: string;
 
 	constructor(path: string) {
-		console.log("bin dist constructed")
 		this.path = path;
 	}
 
