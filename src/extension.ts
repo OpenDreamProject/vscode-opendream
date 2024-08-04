@@ -111,6 +111,9 @@ export async function activate(context: ExtensionContext) {
 	}));
 
 	storagePath = context.globalStorageUri?.fsPath
+
+	//this is hacky but it ensures you've got a working OD distribution on startup
+	await getOpenDreamInstallation(); 
 }
 
 // ----------------------------------------------------------------------------
