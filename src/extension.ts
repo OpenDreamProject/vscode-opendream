@@ -12,6 +12,7 @@ import * as zlib from 'zlib';
 import * as tar from 'tar';
 import * as unzip from 'unzipper';
 
+
 const TaskNames = {
 	SOURCE: 'OpenDream',
 	BUILD_COMPILER: 'build compiler',
@@ -75,7 +76,7 @@ export async function activate(context: ExtensionContext) {
 				"noDebug": debugConfiguration.noDebug || false,
 			};
 		}
-	}));
+	})); 
 
 	// register debugger factory to point at OpenDream's debugger mode
 	context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory('opendream', {
@@ -110,7 +111,7 @@ export async function activate(context: ExtensionContext) {
 		}
 	}));
 
-	storagePath = context.storageUri?.fsPath
+	storagePath = context.globalStorageUri?.fsPath
 }
 
 // ----------------------------------------------------------------------------
@@ -123,9 +124,10 @@ class OpenDreamTaskProvider implements TaskProvider {
 	async provideTasks(token?: CancellationToken): Promise<Task[]> {
 		let openDream = await getOpenDreamInstallation();
 		if (!openDream) {
+			console.log("failed to get in task provider")
 			return [];
 		}
-
+		console.log("task provider")
 		let list = [];
 
 		// Add build tasks for each .dme in the workspace.
@@ -348,6 +350,8 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 			}
 		}
 
+		let returnPromiseList = [];
+
 		if (doUpdateOD) {
 			console.log("Updating OpenDream binaries");
 			vscode.window.showInformationMessage("OpenDream binaries are out of date, updating...")
@@ -358,7 +362,7 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 					console.log(asset)
 					if (asset.name.includes("DMCompiler"))
 						compilerURL = asset.browser_download_url
-					else if (asset.name.includes("OpenDreamServer"))
+					else if (asset.name.includes("OpenDreamServer_TOOLS"))
 						serverURL = asset.browser_download_url
 				}
 			})
@@ -367,66 +371,28 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 				return
 			}
 
-			await fetch(compilerURL).then((response) => {
-				const dest = fs.createWriteStream(path + "/DMCompiler.tar.gz");
-				response.body?.pipe(dest);
-				dest.on('finish', () => {
-					dest.close();
-					console.log("Downloaded DMCompiler to " + path);
-					try {
-						extractTarGz(path + "/DMCompiler.tar.gz", path)
-					} catch(e) {
-						vscode.window.showErrorMessage("Unable to extract DMCompiler.tar.gz downloaded from github! Error: " + e)
-					}
-				});
-			})
+			let compilerGetAndExtract = fetchAndExtract(compilerURL, path)
+			let serverGetANdExtract = fetchAndExtract(serverURL, path)
 			
-
-			await fetch(serverURL).then((response) => {
-				const dest = fs.createWriteStream(path + "/OpenDreamServer.tar.gz");
-				response.body?.pipe(dest);
-				dest.on('finish', () => {
-					dest.close();
-					console.log("Downloaded Server w/ tools to " + path);
-					try {
-						extractTarGz(path + "/OpenDreamServer.tar.gz", path)
-					} catch(e){
-						vscode.window.showErrorMessage("Unable to extract OpenDreamServer.tar.gz downloaded from github! Error: " + e)
-					}
-				});
-			})
 			
 			//create tag file for update checking
-			await fs.writeFile(path +"/"+ ODBinVersionTagFile, data.published_at!, (e) => {
-				if (e) {
-					vscode.window.showErrorMessage("Error writing tag file: " + e)
-				}
-			});
+			returnPromiseList.push(Promise.all([compilerGetAndExtract, serverGetANdExtract]).then(() => {
+				fs.writeFileSync(path +"/"+ ODBinVersionTagFile, data.published_at!)
+			}));
 		}
 
 		if(doUpdateLauncher) {
-			console.log("Updating SS14 Launcher")
-			await fetch(launcherURL).then((response) => {
-				const dest = fs.createWriteStream(path + "/SS14.Launcher.zip");
-				response.body?.pipe(dest);
-				dest.on('finish', () => {
-					dest.close();
-					console.log("Downloaded SS14 Launcher to " + path);
-					try {
-						extractZip(path + "/SS14.Launcher.zip", path+"/SS14.Launcher/")
-					} catch(e) {
-						vscode.window.showErrorMessage("Unable to extract SS14.Launcher.zip downloaded from github! Error: " + e)
-					}
-				});
-			});
+			console.log("Updating SS14 Launcher");
+			vscode.window.showInformationMessage("SS14 Launcher binaries are out of date, updating...")
+			let launcherGetAndExtract = fetchAndExtract(launcherURL, path+"/SS14.Launcher/")
+				.then(()=>{fs.writeFileSync(path +"/"+ LauncherBinVersionTagFile, launcherData.tag_name!)})
 
-			//create tag file for update checking
-			await fs.writeFile(path +"/"+ LauncherBinVersionTagFile, launcherData.tag_name!, (e) => {
-				if (e) {
-					vscode.window.showErrorMessage("Error writing tag file: " + e)
-				}
-			});
+			returnPromiseList.push(launcherGetAndExtract)
 		}
+
+		return Promise.all(returnPromiseList).then(()=>{
+			console.log("updateOpenDreamBinary completed")
+		});
 	}
 
 	// Check if one of the workspace folders is an OpenDream source checkout.
@@ -443,7 +409,7 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 		return new ODSourceInstallation(configuredPath);
 	} else {
 		console.log("binary")
-		return updateOpenDreamBinary(storagePath!).then(()=>{return new ODBinaryDistribution(storagePath!);})
+		return updateOpenDreamBinary(storagePath!).then(()=>{return new ODBinaryDistribution(storagePath!);})		
 	}
 }
 
@@ -451,6 +417,7 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 	protected path: string;
 
 	constructor(path: string) {
+		console.log("bin dist constructed")
 		this.path = path;
 	}
 
@@ -624,26 +591,64 @@ function startDedicatedTask(task: vscode.Task): Thenable<vscode.TaskExecution> {
 
 // Function to extract a .tar.gz file for unpacking bins from github
 // thanks chatgpt <3
-function extractTarGz(tarGzPath: string, outputDir: string) {
-	// Create a read stream for the .tar.gz file
-	const readStream = fs.createReadStream(tarGzPath);
-	// Create a gunzip stream to decompress the .gz file
-	const gunzipStream = zlib.createGunzip();
-	// Create a tar extract stream to extract the tar contents
-	const extractStream = tar.extract({ cwd: outputDir });
+function extractTarGz(tarGzPath: string, outputDir: string) : Promise<void> {
+	return new Promise((resolve, reject) => {
+		// Create a read stream for the .tar.gz file
+		const readStream = fs.createReadStream(tarGzPath);
+		// Create a gunzip stream to decompress the .gz file
+		const gunzipStream = zlib.createGunzip();
+		// Create a tar extract stream to extract the tar contents
+		const extractStream = tar.extract({ cwd: outputDir });
 
-	// Pipe the streams together: read -> gunzip -> extract
-	readStream
-		.pipe(gunzipStream)
-		.pipe(extractStream)
+		// Pipe the streams together: read -> gunzip -> extract
+		readStream
+			.pipe(gunzipStream)
+			.pipe(extractStream)
+			.on('finish', resolve)
+			.on('error', reject);
+	});
 }
 
-function extractZip(zipPath: string, outputDir: string) {
+function fetchAndExtract(url:string, outputDir: string) {
+	let tmpfilename = url.split('/').pop()?.split('?')[0] || '';
+
+	return fetch(url).then((response) => {
+		return new Promise((resolve, reject)=>{
+			const dest = fs.createWriteStream(`${storagePath}/${tmpfilename}`);
+			response.body?.pipe(dest);
+			dest.on('finish', () => {
+				dest.close();
+				console.log(`Downloaded ${tmpfilename} to ${storagePath}/${tmpfilename}`);
+				if(tmpfilename.endsWith('.tar.gz'))
+					return extractTarGz(`${storagePath}/${tmpfilename}`, outputDir)
+						.then(()=>{
+							console.log(`Extracted ${storagePath}/${tmpfilename} to ${outputDir}`)
+							resolve(null)
+						})
+						.catch((e) => {
+							vscode.window.showErrorMessage(`Unable to extract ${tmpfilename} downloaded from github! Error: ${e}`)
+							reject(e);
+						});
+				else if(tmpfilename.endsWith('.zip'))
+					return extractZip(`${storagePath}/${tmpfilename}`, outputDir)
+						.then(()=>{
+							console.log(`Extracted ${storagePath}/${tmpfilename} to ${outputDir}`)
+							resolve(null)
+						})
+						.catch((e) => {
+							vscode.window.showErrorMessage(`Unable to extract ${tmpfilename} downloaded from github! Error: ${e}`)
+							reject(e);
+						});
+			}).on('error', reject);
+		});
+	})
+}
+
+function extractZip(zipPath: string, outputDir: string) : Promise<void> {
 	if (!fs.existsSync(zipPath)) {
 		throw new Error(`File not found: ${zipPath}`);
 	}
-	unzip.Open.file(zipPath).then(d => d.extract({path: outputDir, concurrency: 5}));
-	console.log(`Extracted to: ${outputDir}`);
+	return unzip.Open.file(zipPath).then(d => d.extract({path: outputDir, concurrency: 5}));
 }
 
 function getArchSuffix(): string {
