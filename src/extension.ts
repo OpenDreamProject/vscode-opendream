@@ -317,7 +317,7 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 					open: () => { },
 					close: () => { }
 				};
-				//vscode.window.createTerminal({ name: 'My terminal', pty });
+
 				let PE = new ProcessExecution(`${this.path}/DMCompiler_${getArchSuffix()}/DMCompiler${os.platform() === "win32" ? ".exe" : ""}`, [
 					dme,
 				]);
