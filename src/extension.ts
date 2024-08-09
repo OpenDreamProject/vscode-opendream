@@ -5,6 +5,13 @@ import * as net from 'net';
 import * as fs from 'fs';
 import { CancellationToken, commands, DebugProtocolMessage, ExtensionContext, FileType, ProcessExecution, Task, TaskGroup, TaskProvider, workspace } from 'vscode';
 import * as vscode from 'vscode';
+import fetch from 'node-fetch';
+import * as os from 'os';
+import { Octokit } from "@octokit/rest";
+import * as zlib from 'zlib';
+import * as tar from 'tar';
+import * as unzip from 'unzipper';
+
 
 const TaskNames = {
 	SOURCE: 'OpenDream',
@@ -18,6 +25,12 @@ const TaskNames = {
 };
 
 let clientTask: vscode.TaskExecution | undefined;
+
+//tag file to keep track of downloaded version
+const ODBinVersionTagFile = "latestODBuild.txt"
+const LauncherBinVersionTagFile = "latestLauncherBuild.txt"
+
+let storagePath: string | undefined;
 
 /*
 Correctness notes:
@@ -72,30 +85,32 @@ export async function activate(context: ExtensionContext) {
 			if (!openDream) {
 				return null;
 			}
-			console.log('Starting OpenDream debug session ----------');
+			console.log('---------- Starting OpenDream debug session ----------');
 
 			// Start a server and listen on an arbitrary port.
-			let server: net.Server;
-			let socketPromise = new Promise<net.Socket>(resolve => server = net.createServer(resolve));
-			server = server!;
-			await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+			const socketPromise = new Promise<net.Socket>((resolve) => {
+				const server = net.createServer((socket) => {
+					server.close();
+					resolve(socket);
+				});
 
-			let buildClientPromise = openDream.buildClient(session.workspaceFolder);
-
-			// Boot the OD server pointing at that port.
-			await openDream.startServer({
-				workspaceFolder: session.workspaceFolder,
-				debugPort: server.address().port,
-				json_path: session.configuration.json_path,
+				server.listen(0, () => {
+					openDream.startServer({
+						workspaceFolder: session.workspaceFolder,
+						debugPort: (server.address() as net.AddressInfo).port,
+						json_path: session.configuration.json_path,
+					});
+				});
 			});
 
+			let buildClientPromise = openDream.buildClient(session.workspaceFolder);
 			// Wait for the OD server to connect back to us, then stop listening.
 			let socket = await socketPromise;
-			server!.close(); // No need to wait for this before proceeding, so just let it ride.
-
 			return new vscode.DebugAdapterInlineImplementation(new OpenDreamDebugAdapter(socket, buildClientPromise));
 		}
 	}));
+
+	storagePath = context.globalStorageUri?.fsPath
 }
 
 // ----------------------------------------------------------------------------
@@ -110,7 +125,6 @@ class OpenDreamTaskProvider implements TaskProvider {
 		if (!openDream) {
 			return [];
 		}
-
 		let list = [];
 
 		// Add build tasks for each .dme in the workspace.
@@ -193,7 +207,6 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 
 				try {
 					let message = JSON.parse(this.buffer.toString('utf-8', headerEnd + 4, dataEnd));
-					console.log('<--', contentLength, message);
 					this.handleMessageFromGame(message);
 				} catch (e) {
 					console.error(e);
@@ -217,7 +230,6 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 
 	private sendMessageToGame(message: DebugProtocolMessage): void {
 		let json = JSON.stringify(message);
-		console.log('-->', json.length, message);
 		this.socket.write(`Content-Length: ${json.length}\r\n\r\n${json}`);
 	}
 
@@ -252,33 +264,19 @@ interface ODClient {
 }
 
 async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undefined> {
-	function exists(path: string): Promise<boolean> {
-		return new Promise(resolve => fs.exists(path, resolve));
-	}
+	// Check if the path is an OpenDream source checkout.
 	function isOpenDreamSource(path: string): Promise<boolean> {
-		return exists(`${path}/OpenDream.sln`);
-	}
-	async function selectOpenDreamPath(message: string, oldValue?: string): Promise<string | undefined> {
-		let choice = await vscode.window.showInformationMessage(message, "Configure", "Not now");
-		if (choice !== "Configure") {
-			return undefined;
-		}
-
-		let selection = await vscode.window.showOpenDialog({
-			defaultUri: oldValue ? vscode.Uri.file(oldValue) : undefined,
-			canSelectFiles: false,
-			canSelectFolders: true,
+		return new Promise((resolve, reject) => {
+			try {
+				const exists = fs.existsSync(`${path}/OpenDream.sln`);
+				resolve(exists);
+			} catch (error) {
+				reject(error);
+			}
 		});
-		if (!selection) {  // cancelled
-			return undefined;
-		}
-		if (selection[0].scheme !== 'file') {
-			return oldValue;
-		}
-		var value = selection[0].fsPath;
-		workspace.getConfiguration('opendream').update('sourcePath', value, vscode.ConfigurationTarget.Global);
-		return value;
 	}
+
+
 
 	// Check if one of the workspace folders is an OpenDream source checkout.
 	for (let folder of workspace.workspaceFolders || []) {
@@ -289,27 +287,15 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 
 	// Check if the configured path is a valid OpenDream source checkout.
 	let configuredPath: string | undefined = workspace.getConfiguration('opendream').get('sourcePath');
-	if (!configuredPath) {
-		configuredPath = await selectOpenDreamPath("This feature requires an OpenDream path to be configured. Select now?", configuredPath);
-		if (!configuredPath) {
-			return;
-		}
+	if (configuredPath && await isOpenDreamSource(configuredPath)) {
+		console.log("Using source installation")
+		return new ODSourceInstallation(configuredPath);
+	} else {
+		console.log("Using binary installation")
+		return new ODBinaryDistribution(storagePath!);
 	}
-
-	do {
-		if (await isOpenDreamSource(configuredPath)) {
-			return new ODSourceInstallation(configuredPath);
-		}
-
-		// When OD starts shipping a binary distribution, attempt ODBinaryDistribution here.
-
-		// Doesn't appear to be valid; prompt for another.
-		configuredPath = await selectOpenDreamPath("The folder you selected does not contain `OpenDream.sln`. Select again?", configuredPath);
-	} while (configuredPath);
 }
 
-// Hypothetical OD binary distribution; not used because OD doesn't have one.
-// @ts-ignore
 class ODBinaryDistribution implements OpenDreamInstallation {
 	protected path: string;
 
@@ -317,23 +303,66 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 		this.path = path;
 	}
 
-	getCompilerExecution(dme: string): ProcessExecution {
-		return new ProcessExecution(`${this.path}/DMCompiler`, [
-			dme,
-		]);
+	getCompilerExecution(dme: string): vscode.CustomExecution {
+		return new vscode.CustomExecution(
+			async (resolvedDefinition): Promise<vscode.Pseudoterminal> => {
+				await this.updateOpenDreamBinary(this.path);
+				const writeEmitter = new vscode.EventEmitter<string>();
+				const closeEmitter = new vscode.EventEmitter<number>();
+				const pty: vscode.Pseudoterminal = {
+					onDidWrite: writeEmitter.event,
+					onDidClose: closeEmitter.event,
+					open: () => { },
+					close: () => { }
+				};
+
+				let PE = new ProcessExecution(`${this.path}/DMCompiler_${getArchSuffix()}/DMCompiler${os.platform() === "win32" ? ".exe" : ""}`, [
+					dme,
+				]);
+				const task = new vscode.Task(
+					resolvedDefinition,
+					vscode.TaskScope.Workspace,
+					'compiler',
+					'custom',
+					PE
+				);
+
+				vscode.tasks.executeTask(task).then((t) => {
+					writeEmitter.fire('Process execution started.\r\n');
+					// Listen for task process end event
+					const disposable = vscode.tasks.onDidEndTaskProcess((event) => {
+						if (event.execution === t) {
+							if (event.exitCode === 0) {
+								writeEmitter.fire('Process execution completed successfully.\r\n');
+								closeEmitter.fire(0);
+							} else {
+								writeEmitter.fire(`Process execution failed with exit code ${event.exitCode}.\r\n`);
+								closeEmitter.fire(event.exitCode || 1);
+							}
+							disposable.dispose();
+						}
+					});
+				}, (error) => {
+					writeEmitter.fire(`Process execution failed: ${error}\r\n`);
+					closeEmitter.fire(1);
+				});
+				return pty;
+			});
 	}
 
 	async buildClient(workspaceFolder?: vscode.WorkspaceFolder): Promise<ODClient> {
 		return {
 			start: async (gamePort) => {
+				//hack to make the launcher executable because zip files don't have permissions preserved on extraction
+				fs.chmodSync(`${this.path}/SS14.Launcher/bin/SS14.Launcher${os.platform() === "win32" ? ".exe" : ""}`, 0o777)
+				fs.chmodSync(`${this.path}/SS14.Launcher/bin/loader/SS14.Loader${os.platform() === "win32" ? ".exe" : ""}`, 0o777)
 				return await startDedicatedTask(new Task(
 					{ type: 'opendream_debug_client' },
 					workspaceFolder || vscode.TaskScope.Workspace,
 					TaskNames.RUN_CLIENT,
 					TaskNames.SOURCE,
-					new ProcessExecution(`${this.path}/OpenDreamClient`, [
-						"--connect",
-						"--connect-address", `127.0.0.1:${gamePort}`,
+					new ProcessExecution(`${this.path}/SS14.Launcher/bin/SS14.Launcher${os.platform() === "win32" ? ".exe" : ""}`, [
+						`ss14://127.0.0.1:${gamePort}`,
 					]),
 				));
 			}
@@ -346,12 +375,127 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 			params.workspaceFolder || vscode.TaskScope.Workspace,
 			TaskNames.RUN_SERVER,
 			TaskNames.SOURCE,
-			new ProcessExecution(`${this.path}/OpenDreamServer`, [
+			new ProcessExecution(`${this.path}/OpenDreamServer_${getArchSuffix()}/Robust.Server${os.platform() === "win32" ? ".exe" : ""}`, [
 				"--cvar", `server.port=0`,
 				"--cvar", `opendream.debug_adapter_launched=${params.debugPort}`,
 				"--cvar", `opendream.json_path=${params.json_path}`,
 			]),
 		));
+	}
+
+	// Checks if the OpenDream binaries exist and are up-to-date, and downloads them if not
+	async updateOpenDreamBinary(path: string): Promise<void> {
+		if (!fs.existsSync(path))
+			fs.mkdirSync(path);
+
+		const octokit = new Octokit();
+		//get SS14 launcher release
+		let launcherResponse = await octokit.rest.repos.getLatestRelease({
+			owner: 'space-wizards',
+			repo: 'SS14.Launcher',
+		})
+
+		if (launcherResponse.status != 200) {
+			vscode.window.showErrorMessage(`Failed to fetch SS14.Launcher releases: HTTP error code ${launcherResponse.status}`);
+			return;
+		}
+		const launcherData = launcherResponse.data
+		let launcherURL
+
+		launcherData.assets.forEach((asset) => {
+			if (asset.name.includes(getArchSuffixForLauncher())) {
+				launcherURL = asset.browser_download_url
+			}
+		})
+		if (launcherURL == undefined) {
+			vscode.window.showErrorMessage(`Failed to find a suitable SS14.Launcher binary for your platform (${getArchSuffixForLauncher()}`)
+			return
+		}
+
+
+		//check tag against local tag
+		let doUpdateLauncher = true;
+		if (fs.existsSync(path + "/" + LauncherBinVersionTagFile)) {
+			let txt = fs.readFileSync(path + "/" + LauncherBinVersionTagFile, 'utf8')
+			if (txt == launcherData.tag_name) {
+				console.log("Launcher binary is up to date")
+				doUpdateLauncher = false;
+			} else {
+				console.log("Launcher binary is out of date")
+				doUpdateLauncher = true;
+			}
+		}
+
+		//get opendream release
+		let response = await octokit.rest.repos.getReleaseByTag({
+			owner: 'OpenDreamProject',
+			repo: 'OpenDream',
+			tag: 'latest'
+		})
+
+		if (response.status != 200) {
+			vscode.window.showErrorMessage(`Failed to fetch OpenDream releases: HTTP error code ${response.status}`);
+			return;
+		}
+
+		const data = response.data
+		let doUpdateOD = true;
+		//check published_at against local file date
+		if (fs.existsSync(path + "/" + ODBinVersionTagFile)) {
+			let txt = fs.readFileSync(path + "/" + ODBinVersionTagFile, 'utf8')
+			if (txt == data.published_at) {
+				console.log("OpenDream binary is up to date")
+				doUpdateOD = false;
+			} else {
+				console.log("OpenDream binary is out of date")
+				doUpdateOD = true;
+			}
+		}
+
+		let returnPromiseList = [];
+
+		if (doUpdateOD) {
+			console.log("Updating OpenDream binaries");
+			vscode.window.showInformationMessage("OpenDream binaries are out of date, updating...")
+			var compilerURL
+			var serverURL
+			data.assets.forEach((asset) => {
+				if (asset.name.includes(getArchSuffix())) {
+					if (asset.name.includes("DMCompiler"))
+						compilerURL = asset.browser_download_url
+					else if (asset.name.includes("OpenDreamServer_TOOLS"))
+						serverURL = asset.browser_download_url
+				}
+			})
+			if (compilerURL == undefined || serverURL == undefined) {
+				vscode.window.showErrorMessage(`Failed to find a suitable OpenDream binary for your platform (${getArchSuffix()})`)
+				return
+			}
+
+			let compilerGetAndExtract = fetchAndExtract(compilerURL, path)
+			let serverGetANdExtract = fetchAndExtract(serverURL, path)
+
+
+			//create tag file for update checking
+			returnPromiseList.push(Promise.all([compilerGetAndExtract, serverGetANdExtract]).then(() => {
+				fs.writeFileSync(path + "/" + ODBinVersionTagFile, data.published_at!)
+			}));
+		}
+
+		if (doUpdateLauncher) {
+			console.log("Updating SS14 Launcher");
+			vscode.window.showInformationMessage("SS14 Launcher binaries are out of date, updating...")
+			let launcherGetAndExtract = fetchAndExtract(launcherURL, path + "/SS14.Launcher/")
+				.then(() => { fs.writeFileSync(path + "/" + LauncherBinVersionTagFile, launcherData.tag_name!) })
+
+			returnPromiseList.push(launcherGetAndExtract)
+		}
+
+		return Promise.all(returnPromiseList).then(() => {
+			console.log("updateOpenDreamBinary completed")
+			if (doUpdateOD || doUpdateLauncher)
+				vscode.window.showInformationMessage("OpenDream binaries updated successfully!")
+		});
 	}
 }
 
@@ -480,4 +624,85 @@ function startDedicatedTask(task: vscode.Task): Thenable<vscode.TaskExecution> {
 	task.presentationOptions.panel = vscode.TaskPanelKind.Dedicated;
 	task.presentationOptions.showReuseMessage = false;
 	return vscode.tasks.executeTask(task);
+}
+
+// Function to extract a .tar.gz file for unpacking bins from github
+// thanks chatgpt <3
+function extractTarGz(tarGzPath: string, outputDir: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		// Create a read stream for the .tar.gz file
+		const readStream = fs.createReadStream(tarGzPath);
+		// Create a gunzip stream to decompress the .gz file
+		const gunzipStream = zlib.createGunzip();
+		// Create a tar extract stream to extract the tar contents
+		const extractStream = tar.extract({ cwd: outputDir });
+
+		// Pipe the streams together: read -> gunzip -> extract
+		readStream
+			.pipe(gunzipStream)
+			.pipe(extractStream)
+			.on('finish', resolve)
+			.on('error', reject);
+	});
+}
+
+function fetchAndExtract(url: string, outputDir: string) {
+	let tmpfilename = url.split('/').pop()?.split('?')[0] || '';
+
+	return fetch(url).then((response) => {
+		return new Promise((resolve, reject) => {
+			const dest = fs.createWriteStream(`${storagePath}/${tmpfilename}`);
+			response.body?.pipe(dest);
+			dest.on('finish', () => {
+				dest.close();
+				console.log(`Downloaded ${tmpfilename} to ${storagePath}/${tmpfilename}`);
+				if (tmpfilename.endsWith('.tar.gz'))
+					return extractTarGz(`${storagePath}/${tmpfilename}`, outputDir)
+						.then(() => {
+							console.log(`Extracted ${storagePath}/${tmpfilename} to ${outputDir}`)
+							resolve(null)
+						})
+						.catch((e) => {
+							vscode.window.showErrorMessage(`Unable to extract ${tmpfilename} downloaded from github! Error: ${e}`)
+							reject(e);
+						});
+				else if (tmpfilename.endsWith('.zip'))
+					return extractZip(`${storagePath}/${tmpfilename}`, outputDir)
+						.then(() => {
+							console.log(`Extracted ${storagePath}/${tmpfilename} to ${outputDir}`)
+							resolve(null)
+						})
+						.catch((e) => {
+							vscode.window.showErrorMessage(`Unable to extract ${tmpfilename} downloaded from github! Error: ${e}`)
+							reject(e);
+						});
+			}).on('error', reject);
+		});
+	})
+}
+
+function extractZip(zipPath: string, outputDir: string): Promise<void> {
+	if (!fs.existsSync(zipPath)) {
+		throw new Error(`File not found: ${zipPath}`);
+	}
+	return unzip.Open.file(zipPath).then(d => d.extract({ path: outputDir, concurrency: 5 }));
+}
+
+function getArchSuffix(): string {
+	let arch: string = os.arch()
+	let platform: string = os.platform()
+	if (platform === "win32")
+		platform = "win"
+	return `${platform}-${arch}`
+}
+
+function getArchSuffixForLauncher(): string {
+	let platform: string = os.platform()
+	if (platform === "win32")
+		platform = "Windows"
+	if (platform === "darwin")
+		platform = "macOS"
+	if (platform === "linux")
+		platform = "Linux"
+	return platform
 }
