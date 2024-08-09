@@ -207,7 +207,6 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 
 				try {
 					let message = JSON.parse(this.buffer.toString('utf-8', headerEnd + 4, dataEnd));
-					//console.log('<--', contentLength, message);
 					this.handleMessageFromGame(message);
 				} catch (e) {
 					console.error(e);
@@ -231,7 +230,6 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 
 	private sendMessageToGame(message: DebugProtocolMessage): void {
 		let json = JSON.stringify(message);
-		//console.log('-->', json.length, message);
 		this.socket.write(`Content-Length: ${json.length}\r\n\r\n${json}`);
 	}
 
@@ -470,7 +468,7 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 				}
 			})
 			if (compilerURL == undefined || serverURL == undefined) {
-				vscode.window.showErrorMessage(`Failed to find a suitable OpenDream binary for your platform (${getArchSuffix()}`)
+				vscode.window.showErrorMessage(`Failed to find a suitable OpenDream binary for your platform (${getArchSuffix()})`)
 				return
 			}
 
