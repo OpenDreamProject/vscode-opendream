@@ -1,7 +1,8 @@
 {
 	"name": "opendream",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"displayName": "OpenDream dev tools",
+	"icon": "OD.png",
 	"description": "Developer tools for OpenDream",
 	"publisher": "platymuus",
 	"author": "SpaceManiac",
@@ -14,10 +15,10 @@
 	],
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/SpaceManiac/vscode-opendream/"
+		"url": "https://github.com/OpenDreamProject/vscode-opendream"
 	},
 	"engines": {
-		"vscode": "^1.30.0"
+		"vscode": "^1.73.0"
 	},
 	"categories": [
 		"Programming Languages",
@@ -37,7 +38,7 @@
 				"opendream.sourcePath": {
 					"type": "string",
 					"default": null,
-					"description": "Path to your copy of the OpenDream source code."
+					"description": "Path to your copy of the OpenDream source code. This should be the top level folder containing OpenDream.sln. Leave empty to use pre-compiled binaries instead."
 				}
 			}
 		},
@@ -45,19 +46,19 @@
 			{
 				"name": "openDreamCompiler",
 				"owner": "opendream",
-                "source": "OpenDream",
+				"source": "OpenDream",
 				"fileLocation": [
 					"relative",
 					"${workspaceFolder}"
 				],
-                "pattern": {
-                    "regexp": "^(Error|Warning) OD\\d+ at (.+):(\\d+):(\\d+): (.+)$",
-                    "severity": 1,
-                    "file": 2,
-                    "line": 3,
-                    "column": 4,
-                    "message": 5
-                }
+				"pattern": {
+					"regexp": "^(Error|Warning) OD\\d+ at (.+):(\\d+):(\\d+): (.+)$",
+					"severity": 1,
+					"file": 2,
+					"line": 3,
+					"column": 4,
+					"message": 5
+				}
 			}
 		],
 		"taskDefinitions": [
@@ -124,16 +125,24 @@
 		"watch": "webpack --mode none --watch",
 		"test-compile": "tsc -p ./"
 	},
-	"dependencies": {
-	},
 	"devDependencies": {
-		"@types/node": "^7.10.14",
-		"@types/vscode": "^1.30.0",
-		"@types/webpack": "^4.41.32",
-		"ts-loader": "^9.4.1",
-		"tslint": "^5.20.1",
-		"typescript": "^4.8.0",
-		"webpack": "^5.64.2",
-		"webpack-cli": "^4.9.1"
+		"@aws-sdk/client-s3":"^3.623.0", 
+		"@types/node": "^18",
+		"@types/unzipper": "^0.10.9",
+		"@types/vscode": "^1.73.0",
+		"@typescript-eslint/eslint-plugin": "^7.14.0",
+		"@typescript-eslint/parser": "^7.14.0",
+		"@vscode/vsce": "^2.31.1",
+		"eslint": "^8.26.0",
+		"ts-loader": "^9.5.1",
+		"typescript": "^5.5.2"
+	},
+	"dependencies": {
+		"@octokit/rest": "^21.0.1",
+		"adm-zip": "^0.5.14",
+		"node-fetch": "3.3.2",
+		"tar": "^7.4.3",
+		"unzipper": "^0.12.0",
+		"zlib": "^1.0.5"
 	}
 }
