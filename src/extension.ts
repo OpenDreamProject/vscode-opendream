@@ -11,7 +11,7 @@ import { Octokit } from "@octokit/rest";
 import * as zlib from 'zlib';
 import * as tar from 'tar';
 import * as unzip from 'unzipper';
-
+import { spawn } from 'child_process';
 
 const TaskNames = {
 	SOURCE: 'OpenDream',
@@ -139,7 +139,7 @@ class OpenDreamTaskProvider implements TaskProvider {
 					folder,
 					TaskNames.RUN_COMPILER(file),
 					TaskNames.SOURCE,
-					openDream.getCompilerExecution(file),
+					openDream.getCompilerExecution(folder.uri, file),
 					'$openDreamCompiler'
 				);
 				task.group = TaskGroup.Build;
@@ -254,7 +254,7 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 // Abstraction over possible OpenDream installation methods.
 
 interface OpenDreamInstallation {
-	getCompilerExecution(dme: string): ProcessExecution | vscode.ShellExecution | vscode.CustomExecution;
+	getCompilerExecution(workspaceFolder:  vscode.Uri, dme: string): ProcessExecution | vscode.ShellExecution | vscode.CustomExecution;
 	buildClient(workspaceFolder?: vscode.WorkspaceFolder): Promise<ODClient>;
 	startServer(params: { workspaceFolder?: vscode.WorkspaceFolder, debugPort: number, json_path: string }): Promise<void>;
 }
@@ -303,7 +303,7 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 		this.path = path;
 	}
 
-	getCompilerExecution(dme: string): vscode.CustomExecution {
+	getCompilerExecution(workspaceFolder:  vscode.Uri, dme: string): vscode.CustomExecution {
 		return new vscode.CustomExecution(
 			async (resolvedDefinition): Promise<vscode.Pseudoterminal> => {
 				await this.updateOpenDreamBinary(this.path);
@@ -316,36 +316,26 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 					close: () => { }
 				};
 
-				let PE = new ProcessExecution(`${this.path}/DMCompiler_${getArchSuffix()}/DMCompiler${os.platform() === "win32" ? ".exe" : ""}`, [
-					dme,
-				]);
-				const task = new vscode.Task(
-					resolvedDefinition,
-					vscode.TaskScope.Workspace,
-					'compiler',
-					'custom',
-					PE
-				);
+				const compilerPath = `${this.path}/DMCompiler_${getArchSuffix()}/DMCompiler${os.platform() === "win32" ? ".exe" : ""}`;
+				let compileProcess = spawn(compilerPath, [dme], { cwd: workspaceFolder.path });
 
-				vscode.tasks.executeTask(task).then((t) => {
-					writeEmitter.fire('Process execution started.\r\n');
-					// Listen for task process end event
-					const disposable = vscode.tasks.onDidEndTaskProcess((event) => {
-						if (event.execution === t) {
-							if (event.exitCode === 0) {
-								writeEmitter.fire('Process execution completed successfully.\r\n');
-								closeEmitter.fire(0);
-							} else {
-								writeEmitter.fire(`Process execution failed with exit code ${event.exitCode}.\r\n`);
-								closeEmitter.fire(event.exitCode || 1);
-							}
-							disposable.dispose();
-						}
-					});
-				}, (error) => {
-					writeEmitter.fire(`Process execution failed: ${error}\r\n`);
+				compileProcess.on('close', (code) => {
+					closeEmitter.fire(code || 1);
+				}); 
+
+				compileProcess.on('error', (err) => {
+					writeEmitter.fire(`Error running compiler process: ${err.message}\r\n`);
 					closeEmitter.fire(1);
+				})
+				
+				compileProcess.stdout.on('data', (data) => {
+					writeEmitter.fire(data.toString().replaceAll('\n', "\r\n"));
 				});
+				
+				compileProcess.stderr.on('data', (data) => {
+					writeEmitter.fire(data.toString().replaceAll('\n', "\r\n"));
+				});
+				
 				return pty;
 			});
 	}
@@ -507,7 +497,7 @@ class ODSourceInstallation implements OpenDreamInstallation {
 		this.path = path;
 	}
 
-	getCompilerExecution(dme: string): ProcessExecution {
+	getCompilerExecution(workspaceFolder:  vscode.Uri, dme: string): ProcessExecution {
 		return new ProcessExecution("dotnet", [
 			"run",
 			"--project", `${this.path}/DMCompiler`,
