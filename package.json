@@ -51,7 +51,7 @@
 					"${workspaceFolder}"
 				],
                 "pattern": {
-                    "regexp": "^(\\w+) at (.+):(\\d+):(\\d+): (.+)$",
+                    "regexp": "^(Error|Warning) OD\\d+ at (.+):(\\d+):(\\d+): (.+)$",
                     "severity": 1,
                     "file": 2,
                     "line": 3,
