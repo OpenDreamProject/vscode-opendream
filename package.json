@@ -136,7 +136,8 @@
 		"@vscode/vsce": "^2.31.1",
 		"eslint": "^8.26.0",
 		"ts-loader": "^9.5.1",
-		"typescript": "^5.5.2"
+		"typescript": "^5.5.2",
+		"webpack-cli": "^5.1.4"
 	},
 	"dependencies": {
 		"@octokit/rest": "^21.0.1",
