@@ -4,8 +4,8 @@
 	"displayName": "OpenDream dev tools",
 	"icon": "OD.png",
 	"description": "Developer tools for OpenDream",
-	"publisher": "platymuus",
-	"author": "SpaceManiac",
+	"publisher": "ss13",
+	"author": "OpenDream",
 	"license": "GPL-3.0",
 	"keywords": [
 		"opendream",
