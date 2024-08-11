@@ -320,7 +320,8 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 				let compileProcess = spawn(compilerPath, [dme], { cwd: workspaceFolder.path });
 
 				compileProcess.on('close', (code) => {
-					closeEmitter.fire(code || 1);
+					console.log(`Compiler process exited with code ${code}`);
+					closeEmitter.fire(code === null ? 1 : code);
 				}); 
 
 				compileProcess.on('error', (err) => {
