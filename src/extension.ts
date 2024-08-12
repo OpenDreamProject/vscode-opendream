@@ -317,7 +317,7 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 				};
 
 				const compilerPath = `${this.path}/DMCompiler_${getArchSuffix()}/DMCompiler${os.platform() === "win32" ? ".exe" : ""}`;
-				let compileProcess = spawn(compilerPath, [dme], { cwd: workspaceFolder.path });
+				let compileProcess = spawn(compilerPath, [dme], { cwd: workspaceFolder.fsPath });
 
 				compileProcess.on('close', (code) => {
 					console.log(`Compiler process exited with code ${code}`);
