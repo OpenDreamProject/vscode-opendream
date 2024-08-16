@@ -1,7 +1,7 @@
 {
 	"name": "opendream",
 	"version": "0.2.2",
-	"displayName": "OpenDream dev tools",
+	"displayName": "OpenDream Dev Tools",
 	"icon": "OD.png",
 	"description": "Developer tools for OpenDream",
 	"publisher": "ss13",
