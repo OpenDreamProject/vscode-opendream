@@ -106,7 +106,8 @@ export async function activate(context: ExtensionContext) {
 			let buildClientPromise = openDream.buildClient(session.workspaceFolder);
 			// Wait for the OD server to connect back to us, then stop listening.
 			let socket = await socketPromise;
-			return new vscode.DebugAdapterInlineImplementation(new OpenDreamDebugAdapter(socket, buildClientPromise, true));
+			let hotReloadEnable:boolean = workspace.getConfiguration('opendream').get('hotReload') || false;
+			return new vscode.DebugAdapterInlineImplementation(new OpenDreamDebugAdapter(socket, buildClientPromise, hotReloadEnable));
 		}
 	}));
 
