@@ -239,9 +239,9 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 		this.sendMessageToGame({ type: 'request', command: 'hotreloadinterface'})
 	}
 
-	private hotReloadResource(resouce:vscode.Uri) {
-		console.log(`Hot reloading resource ${resouce.fsPath}`)
-		this.sendMessageToGame({ type: 'request', command: 'hotreloadresource', arguments: {'file':resouce.fsPath}})
+	private hotReloadResource(resource:vscode.Uri) {
+		console.log(`Hot reloading resource ${resource.fsPath}`)
+		this.sendMessageToGame({ type: 'request', command: 'hotreloadresource', arguments: {'file':resource.fsPath}})
 	}
 
 	handleMessage(message: any): void {
