@@ -1,9 +1,20 @@
 # OpenDream for Visual Studio Code
 
-Work-in-progress extension for VSC to add task runner and debugger support for
+An extension for VSCode to add task runner and debugger support for
 [OpenDream](https://github.com/OpenDreamProject/).
 
 Best used in combination with [DreamMaker Language Client](https://marketplace.visualstudio.com/items?itemName=platymuus.dm-langclient).
+
+## Features
+
+- Full VSCode debugger integration (breakpoints, stepping, variable inspection, etc.)
+- Automatic management of required binaries, including downloading releases from Github or compiling from source as appropriate
+- Hot reloading of interface and resource files
+
+## How To Use
+
+Simply install the extension, open a folder containing your DME file, and start debugging. The extension will automatically grab the latest releases of OpenDream and the SS14 Launcher, compile your DME, start the server and the client and connect them.
+Optionally, you can configure the path to your OpenDream source directory or add the OpenDream source directory to your workspace to compile from source instead.
 
 ## License
 
