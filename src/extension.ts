@@ -246,10 +246,11 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 
 		}
 		if(hotReloadCodeAuto){
-			this.codeWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dm}"))
-			this.codeWatcher.onDidChange(() => {this.hotReloadCode()})
-			this.codeWatcher.onDidCreate(() => {this.hotReloadCode()})
-			this.codeWatcher.onDidDelete(() => {this.hotReloadCode()})
+			this.codeWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dm,dme}"))
+			
+			this.codeWatcher.onDidChange((file) => {this.hotReloadCode(file)})
+			this.codeWatcher.onDidCreate((file) => {this.hotReloadCode(file)})
+			this.codeWatcher.onDidDelete((file) => {this.hotReloadCode(file)})
 		}
 	}
 
@@ -263,8 +264,10 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 		this.sendMessageToGame({ type: 'request', command: 'hotreloadresource', arguments: {'file':resource.fsPath}})
 	}
 
-	private hotReloadCode(): void {
-		console.log("Hot reloading code")
+	private hotReloadCode(resource?:vscode.Uri): void {
+		if(resource?.fsPath.includes("DMStandard"))
+			return //ignore changes to DMStandard
+		console.log(`Hot reloading code triggered by ${resource?.fsPath}`)
 		vscode.tasks.fetchTasks({type: 'opendream'}).then((tasks) => {
 			for(let x of tasks)
 				if(x.name.includes("compile") && x.name.includes(".dme")) 
