@@ -40,10 +40,15 @@
 					"default": null,
 					"description": "Path to your copy of the OpenDream source code. This should be the top level folder containing OpenDream.sln. Leave empty to use pre-compiled binaries instead."
 				},
-				"opendream.hotReload": {
+				"opendream.hotReloadResource": {
 					"type": "boolean",
 					"default": true,
 					"description": "Automatically reload resources when they're changed on disk."
+				},
+				"opendream.hotReloadCode": {
+					"type": "boolean",
+					"default": true,
+					"description": "Automatically recompile and hot reload code files when they're changed on disk."
 				}
 			}
 		},

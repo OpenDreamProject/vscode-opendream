@@ -112,8 +112,9 @@ export async function activate(context: ExtensionContext) {
 			let buildClientPromise = openDream.buildClient(session.workspaceFolder);
 			// Wait for the OD server to connect back to us, then stop listening.
 			let socket = await socketPromise;
-			let hotReloadEnable:boolean = workspace.getConfiguration('opendream').get('hotReload') || false;
-			return new vscode.DebugAdapterInlineImplementation(new OpenDreamDebugAdapter(socket, buildClientPromise, hotReloadEnable));
+			let hotReloadResourceEnable:boolean = workspace.getConfiguration('opendream').get('hotReloadResource') || false;
+			let hotReloadCodeEnable:boolean = workspace.getConfiguration('opendream').get('hotReloadCode') || false;
+			return new vscode.DebugAdapterInlineImplementation(new OpenDreamDebugAdapter(socket, buildClientPromise, hotReloadResourceEnable, hotReloadCodeEnable));
 		}
 	}));
 
@@ -177,7 +178,7 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 	private sendMessageToEditor = this.didSendMessageEmitter.fire.bind(this.didSendMessageEmitter);
 	onDidSendMessage = this.didSendMessageEmitter.event;
 
-	constructor(socket: net.Socket, buildClientPromise?: Promise<ODClient>, hotReloadAuto?: boolean) {
+	constructor(socket: net.Socket, buildClientPromise?: Promise<ODClient>, hotReloadResourceAuto?: boolean, hotReloadCodeAuto?: boolean) {
 		this.socket = socket;
 		this.buildClientPromise = buildClientPromise;
 
@@ -229,10 +230,10 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 
 		hotReloadCommandFunction = () => this.hotReloadCode()
 
-		if(hotReloadAuto) {
+		if(hotReloadResourceAuto) {
 			this.resourceWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dmi,png,jpg,rsi,gif,bmp}"))//TODO all the sound file formats?
 			this.interfaceWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dmf}"))
-			this.codeWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dm}"))
+			
 
 			this.interfaceWatcher.onDidChange(() => {this.hotReloadInterface()})
 			this.interfaceWatcher.onDidCreate(() => {this.hotReloadInterface()})
@@ -242,6 +243,10 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 			this.resourceWatcher.onDidCreate((file) => {this.hotReloadResource(file)})
 			this.resourceWatcher.onDidDelete((file) => {this.hotReloadResource(file)})
 
+
+		}
+		if(hotReloadCodeAuto){
+			this.codeWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dm}"))
 			this.codeWatcher.onDidChange(() => {this.hotReloadCode()})
 			this.codeWatcher.onDidCreate(() => {this.hotReloadCode()})
 			this.codeWatcher.onDidDelete(() => {this.hotReloadCode()})
