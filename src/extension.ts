@@ -32,6 +32,8 @@ const LauncherBinVersionTagFile = "latestLauncherBuild.txt"
 
 let storagePath: string | undefined;
 
+let hotReloadCommandFunction: (() => void);
+
 /*
 Correctness notes:
 	- Tasks passed to `executeTask` must have unique `type` values in their definitions, or VSC will confuse them.
@@ -52,6 +54,10 @@ export async function activate(context: ExtensionContext) {
 	// ------------------------------------------------------------------------
 	// Register the task provider for OpenDream build tasks.
 	context.subscriptions.push(vscode.tasks.registerTaskProvider('opendream', new OpenDreamTaskProvider()));
+
+	// ------------------------------------------------------------------------7
+	// Register the hot reload command as a handle on the function which is set by the debug adapter
+	commands.registerCommand('opendream.hotReload', () => hotReloadCommandFunction())	
 
 	// ------------------------------------------------------------------------
 	// Register the debugger mode.
@@ -221,6 +227,8 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 			}
 		});
 
+		hotReloadCommandFunction = () => this.hotReloadCode()
+
 		if(hotReloadAuto) {
 			this.resourceWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dmi,png,jpg,rsi,gif,bmp}"))//TODO all the sound file formats?
 			this.interfaceWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dmf}"))
@@ -298,6 +306,7 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 		this.resourceWatcher?.dispose()
 		this.interfaceWatcher?.dispose()
 		this.codeWatcher?.dispose()
+		
 		this.socket.destroy();
 		this.didSendMessageEmitter.dispose();
 	}

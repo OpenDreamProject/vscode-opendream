@@ -123,7 +123,24 @@
 			{
 				"language": "dm"
 			}
-		]
+		],
+		"commands": [
+			{
+				"command": "opendream.hotReload",
+				"title": "Hot Reload",
+				"shortTitle": "$(flame)",
+				"icon": "$(flame)"
+
+			}
+		],
+		"menus": {
+			"debug/toolBar": [
+			  {
+				"command": "opendream.hotReload",
+				"group": "navigation" 
+			  }
+			]
+		  }
 	},
 	"scripts": {
 		"vscode:prepublish": "webpack --mode production",
