@@ -39,6 +39,10 @@ const config = {
         ]
       }
     ]
-  }
+  },
+  // https://github.com/ZJONSSON/node-unzipper/issues/330
+  plugins: [
+    new (require('webpack')).IgnorePlugin({ resourceRegExp: /^@aws-sdk\/client-s3$/ })
+  ]
 };
 module.exports = config;
