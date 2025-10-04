@@ -195,8 +195,8 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 			// Append received data to buffer.
 			let old = this.buffer;
 			this.buffer = Buffer.alloc(old.length + received.length);
-			old.copy(this.buffer);
-			received.copy(this.buffer, old.length);
+			old.copy(this.buffer as any);
+			received.copy(this.buffer as any, old.length);
 
 			// Attempt to chop off a complete message.
 			let headerEnd = this.buffer.indexOf('\r\n\r\n');
@@ -659,7 +659,7 @@ function extractTarGz(tarGzPath: string, outputDir: string): Promise<void> {
 		// Pipe the streams together: read -> gunzip -> extract
 		readStream
 			.pipe(gunzipStream)
-			.pipe(extractStream)
+			.pipe(extractStream as any)
 			.on('finish', resolve)
 			.on('error', reject);
 	});

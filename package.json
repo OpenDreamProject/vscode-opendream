@@ -18,7 +18,7 @@
 		"url": "https://github.com/OpenDreamProject/vscode-opendream"
 	},
 	"engines": {
-		"vscode": "^1.73.0"
+		"vscode": "^1.90.0"
 	},
 	"categories": [
 		"Programming Languages",
@@ -129,27 +129,25 @@
 		"vscode:prepublish": "webpack --mode production",
 		"compile": "webpack --mode none",
 		"watch": "webpack --mode none --watch",
-		"test-compile": "tsc -p ./"
+		"tsc": "tsc -p ./"
 	},
 	"devDependencies": {
-		"@aws-sdk/client-s3":"^3.623.0", 
-		"@types/node": "^18",
-		"@types/unzipper": "^0.10.9",
+		"@types/node": "^20",
+		"@types/unzipper": "^0.10.11",
 		"@types/vscode": "^1.73.0",
-		"@typescript-eslint/eslint-plugin": "^7.14.0",
-		"@typescript-eslint/parser": "^7.14.0",
-		"@vscode/vsce": "^2.31.1",
-		"eslint": "^8.26.0",
-		"ts-loader": "^9.5.1",
-		"typescript": "^5.5.2",
+		"@typescript-eslint/eslint-plugin": "^8.45.0",
+		"@typescript-eslint/parser": "^8.45.0",
+		"@vscode/vsce": "^3.6.2",
+		"eslint": "^9.37.0",
+		"ts-loader": "^9.5.4",
+		"typescript": "^5.9.3",
 		"webpack-cli": "^5.1.4"
 	},
 	"dependencies": {
-		"@octokit/rest": "^21.0.1",
-		"adm-zip": "^0.5.14",
+		"@octokit/rest": "^22.0.0",
+		"adm-zip": "^0.5.16",
 		"node-fetch": "3.3.2",
-		"tar": "^7.4.3",
-		"unzipper": "^0.12.0",
-		"zlib": "^1.0.5"
+		"tar": "^7.5.1",
+		"unzipper": "^0.12.3"
 	}
 }
