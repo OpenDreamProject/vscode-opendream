@@ -32,6 +32,8 @@ const LauncherBinVersionTagFile = "latestLauncherBuild.txt"
 
 let storagePath: string | undefined;
 
+let hotReloadCommandFunction: (() => void);
+
 /*
 Correctness notes:
 	- Tasks passed to `executeTask` must have unique `type` values in their definitions, or VSC will confuse them.
@@ -52,6 +54,10 @@ export async function activate(context: ExtensionContext) {
 	// ------------------------------------------------------------------------
 	// Register the task provider for OpenDream build tasks.
 	context.subscriptions.push(vscode.tasks.registerTaskProvider('opendream', new OpenDreamTaskProvider()));
+
+	// ------------------------------------------------------------------------7
+	// Register the hot reload command as a handle on the function which is set by the debug adapter
+	commands.registerCommand('opendream.hotReload', () => hotReloadCommandFunction())	
 
 	// ------------------------------------------------------------------------
 	// Register the debugger mode.
@@ -106,8 +112,9 @@ export async function activate(context: ExtensionContext) {
 			let buildClientPromise = openDream.buildClient(session.workspaceFolder);
 			// Wait for the OD server to connect back to us, then stop listening.
 			let socket = await socketPromise;
-			let hotReloadEnable:boolean = workspace.getConfiguration('opendream').get('hotReload') || false;
-			return new vscode.DebugAdapterInlineImplementation(new OpenDreamDebugAdapter(socket, buildClientPromise, hotReloadEnable));
+			let hotReloadResourceEnable:boolean = workspace.getConfiguration('opendream').get('hotReloadResource') || false;
+			let hotReloadCodeEnable:boolean = workspace.getConfiguration('opendream').get('hotReloadCode') || false;
+			return new vscode.DebugAdapterInlineImplementation(new OpenDreamDebugAdapter(socket, buildClientPromise, hotReloadResourceEnable, hotReloadCodeEnable));
 		}
 	}));
 
@@ -165,12 +172,13 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 	private buffer = Buffer.alloc(0);
 	private resourceWatcher?: vscode.FileSystemWatcher
 	private interfaceWatcher?: vscode.FileSystemWatcher
+	private codeWatcher?: vscode.FileSystemWatcher
 
 	private didSendMessageEmitter = new vscode.EventEmitter<DebugProtocolMessage>();
 	private sendMessageToEditor = this.didSendMessageEmitter.fire.bind(this.didSendMessageEmitter);
 	onDidSendMessage = this.didSendMessageEmitter.event;
 
-	constructor(socket: net.Socket, buildClientPromise?: Promise<ODClient>, hotReloadAuto?: boolean) {
+	constructor(socket: net.Socket, buildClientPromise?: Promise<ODClient>, hotReloadResourceAuto?: boolean, hotReloadCodeAuto?: boolean) {
 		this.socket = socket;
 		this.buildClientPromise = buildClientPromise;
 
@@ -220,9 +228,12 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 			}
 		});
 
-		if(hotReloadAuto) {
+		hotReloadCommandFunction = () => this.hotReloadCode()
+
+		if(hotReloadResourceAuto) {
 			this.resourceWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dmi,png,jpg,rsi,gif,bmp}"))//TODO all the sound file formats?
 			this.interfaceWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dmf}"))
+			
 
 			this.interfaceWatcher.onDidChange(() => {this.hotReloadInterface()})
 			this.interfaceWatcher.onDidCreate(() => {this.hotReloadInterface()})
@@ -231,6 +242,15 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 			this.resourceWatcher.onDidChange((file) => {this.hotReloadResource(file)})
 			this.resourceWatcher.onDidCreate((file) => {this.hotReloadResource(file)})
 			this.resourceWatcher.onDidDelete((file) => {this.hotReloadResource(file)})
+
+
+		}
+		if(hotReloadCodeAuto){
+			this.codeWatcher = vscode.workspace.createFileSystemWatcher(("**/*.{dm,dme}"))
+			
+			this.codeWatcher.onDidChange((file) => {this.hotReloadCode(file)})
+			this.codeWatcher.onDidCreate((file) => {this.hotReloadCode(file)})
+			this.codeWatcher.onDidDelete((file) => {this.hotReloadCode(file)})
 		}
 	}
 
@@ -242,6 +262,26 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 	private hotReloadResource(resource:vscode.Uri) {
 		console.log(`Hot reloading resource ${resource.fsPath}`)
 		this.sendMessageToGame({ type: 'request', command: 'hotreloadresource', arguments: {'file':resource.fsPath}})
+	}
+
+	private hotReloadCode(resource?:vscode.Uri): void {
+		if(resource?.fsPath.includes("DMStandard"))
+			return //ignore changes to DMStandard
+		console.log(`Hot reloading code triggered by ${resource?.fsPath}`)
+		vscode.tasks.fetchTasks({type: 'opendream'}).then((tasks) => {
+			for(let x of tasks)
+				if(x.name.includes("compile") && x.name.includes(".dme")) 
+					return vscode.tasks.executeTask(x);	
+			throw Error("Can't find compile task!")		
+		}).then((execution)=>{
+			vscode.tasks.onDidEndTask((event) => {
+				if(event.execution.task == execution.task)
+					console.log("compile complete, sending hot reload request")				
+					commands.executeCommand('opendream.getFilenameJson').then(
+						(filename)=>this.sendMessageToGame({ type: 'request', command: 'hotreloadbytecode', arguments: {'file':filename}})
+					)					
+			})
+		})
 	}
 
 	handleMessage(message: any): void {
@@ -273,6 +313,8 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 	dispose() {
 		this.resourceWatcher?.dispose()
 		this.interfaceWatcher?.dispose()
+		this.codeWatcher?.dispose()
+		
 		this.socket.destroy();
 		this.didSendMessageEmitter.dispose();
 	}
