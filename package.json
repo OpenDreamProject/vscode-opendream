@@ -38,7 +38,7 @@
 				"opendream.sourcePath": {
 					"type": "string",
 					"default": null,
-					"description": "Path to your copy of the OpenDream source code. This should be the top level folder containing OpenDream.sln. Leave empty to use pre-compiled binaries instead."
+					"description": "Path to your copy of the OpenDream source code. This should be the top level folder containing OpenDream.slnx. Leave empty to use pre-compiled binaries instead."
 				},
 				"opendream.hotReload": {
 					"type": "boolean",

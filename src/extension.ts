@@ -296,7 +296,7 @@ async function getOpenDreamInstallation(): Promise<OpenDreamInstallation | undef
 	function isOpenDreamSource(path: string): Promise<boolean> {
 		return new Promise((resolve, reject) => {
 			try {
-				const exists = fs.existsSync(`${path}/OpenDream.sln`);
+				const exists = fs.existsSync(`${path}/OpenDream.slnx`);
 				resolve(exists);
 			} catch (error) {
 				reject(error);
