@@ -598,7 +598,7 @@ class ODWorkspaceFolderInstallation extends ODSourceInstallation {
 
 	async startServer(params: { workspaceFolder?: vscode.WorkspaceFolder | undefined; debugPort: number; json_path: string; }): Promise<void> {
 		// Build, then run.
-		await waitForTaskToEnd(await vscode.tasks.executeTask(new Task(
+		await waitForTaskToEnd(await startDedicatedTask(new Task(
 			{ type: 'opendream_debug_server' },
 			this.workspaceFolder || vscode.TaskScope.Workspace,
 			TaskNames.BUILD_SERVER,
