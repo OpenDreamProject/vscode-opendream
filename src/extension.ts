@@ -227,7 +227,7 @@ class OpenDreamDebugAdapter implements vscode.DebugAdapter {
 			this.interfaceWatcher.onDidChange(() => {this.hotReloadInterface()})
 			this.interfaceWatcher.onDidCreate(() => {this.hotReloadInterface()})
 			this.interfaceWatcher.onDidDelete(() => {this.hotReloadInterface()})
-			
+
 			this.resourceWatcher.onDidChange((file) => {this.hotReloadResource(file)})
 			this.resourceWatcher.onDidCreate((file) => {this.hotReloadResource(file)})
 			this.resourceWatcher.onDidDelete((file) => {this.hotReloadResource(file)})
@@ -350,21 +350,21 @@ class ODBinaryDistribution implements OpenDreamInstallation {
 				compileProcess.on('close', (code) => {
 					console.log(`Compiler process exited with code ${code}`);
 					closeEmitter.fire(code === null ? 1 : code);
-				}); 
+				});
 
 				compileProcess.on('error', (err) => {
 					writeEmitter.fire(`Error running compiler process: ${err.message}\r\n`);
 					closeEmitter.fire(1);
 				})
-				
+
 				compileProcess.stdout.on('data', (data) => {
 					writeEmitter.fire(data.toString().replaceAll('\n', "\r\n"));
 				});
-				
+
 				compileProcess.stderr.on('data', (data) => {
 					writeEmitter.fire(data.toString().replaceAll('\n', "\r\n"));
 				});
-				
+
 				return pty;
 			});
 	}
