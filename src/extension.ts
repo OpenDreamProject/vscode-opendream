@@ -88,7 +88,7 @@ export async function activate(context: ExtensionContext) {
 			console.log('---------- Starting OpenDream debug session ----------');
 
 			// Start a server and listen on an arbitrary port.
-			const socketPromise = new Promise<net.Socket>((resolve) => {
+			const socketPromise = new Promise<net.Socket>((resolve, reject) => {
 				const server = net.createServer((socket) => {
 					server.close();
 					resolve(socket);
@@ -99,6 +99,9 @@ export async function activate(context: ExtensionContext) {
 						workspaceFolder: session.workspaceFolder,
 						debugPort: (server.address() as net.AddressInfo).port,
 						json_path: session.configuration.json_path,
+					}).catch(error => {
+						server.close();
+						reject(error);
 					});
 				});
 			});
@@ -106,7 +109,7 @@ export async function activate(context: ExtensionContext) {
 			let buildClientPromise = openDream.buildClient(session.workspaceFolder);
 			// Wait for the OD server to connect back to us, then stop listening.
 			let socket = await socketPromise;
-			let hotReloadEnable:boolean = workspace.getConfiguration('opendream').get('hotReload') || false;
+			let hotReloadEnable = workspace.getConfiguration('opendream').get<boolean>('hotReload') || false;
 			return new vscode.DebugAdapterInlineImplementation(new OpenDreamDebugAdapter(socket, buildClientPromise, hotReloadEnable));
 		}
 	}));
@@ -629,13 +632,29 @@ class ODWorkspaceFolderInstallation extends ODSourceInstallation {
 }
 
 function waitForTaskToEnd(task: vscode.TaskExecution): Promise<void> {
-	return new Promise<void>(resolve => {
-		let registration = vscode.tasks.onDidEndTask(event => {
-			if (event.execution == task) {
-				resolve();
-				registration.dispose();
-			}
-		});
+	return new Promise<void>((resolve, reject) => {
+		if (task.task.execution instanceof ProcessExecution) {
+			const process = `${task.task.execution.process} ${task.task.execution.args.join(" ")}`;
+			const registration = vscode.tasks.onDidEndTaskProcess(event => {
+				if (event.execution == task) {
+					if (event.exitCode == 0) {
+						resolve();
+					} else if (event.exitCode !== undefined) {
+						reject(`Exited with code ${event.exitCode}:\n${process}`);
+					} else {
+						reject({ showUser: false });
+					}
+					registration.dispose();
+				}
+			});
+		} else {
+			const registration = vscode.tasks.onDidEndTask(event => {
+				if (event.execution == task) {
+					resolve();
+					registration.dispose();
+				}
+			});
+		}
 	});
 }
 
